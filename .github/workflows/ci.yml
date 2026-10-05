@@ -21,5 +21,15 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Install ripgrep (Linux)
+        if: runner.os == 'Linux'
+        run: command -v rg || (sudo apt-get update && sudo apt-get install -y ripgrep)
+      - name: Install ripgrep (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
+            choco install ripgrep --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - run: npm run check
       - run: npm run test:package

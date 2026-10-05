@@ -1,0 +1,6 @@
+{
+  "pattern": "ToolExecutor",
+  "path": "src",
+  "literal": true,
+  "fileGlob": "src/**/*.ts"
+}

@@ -1,0 +1,5 @@
+{
+  "command": "node --version",
+  "cwd": ".",
+  "timeoutMs": 10000
+}

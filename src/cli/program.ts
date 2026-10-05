@@ -118,5 +118,26 @@ export function createProgram(): Command {
     });
 
   program.action(() => program.outputHelp());
+  program
+    .command('tools')
+    .description('列出六个内置工具与JSON Schema，不访问模型')
+    .action(async () => {
+      const { listTools } = await import('./tools.js');
+      listTools();
+    });
+  program
+    .command('tool')
+    .description('明确调用一个工具，输出JSON；写入/命令默认需--approve本次授权')
+    .argument('<name>', 'ReadFile / WriteFile / EditFile / Glob / Grep / Bash')
+    .option('--input <json>', '工具JSON参数')
+    .option('--input-file <file>', '读取工具参数JSON文件（相对项目工作目录）')
+    .option('--approve', '用户明确授权本次写入或shell；不能覆盖Plan禁止规则')
+    .option('--shell <kind>', 'powershell / bash；仅影响Bash工具')
+    .option('--shell-executable <path>', '用户指定shell可执行程序绝对路径')
+    .action(async (name: string, _options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { runTool } = await import('./tools.js');
+      await runTool(loaded, name, command.opts());
+    });
   return program;
 }

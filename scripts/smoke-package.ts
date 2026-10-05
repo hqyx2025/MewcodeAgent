@@ -61,7 +61,7 @@ try {
     `import { registerHooks } from 'node:module';
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (['js-yaml', 'zod', 'ink', 'react', 'openai'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
+    if (['js-yaml', 'zod', 'ink', 'react', 'openai', 'picomatch'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
       throw new Error('Heavy dependency loaded on help/version path');
     }
     return nextResolve(specifier, context);
@@ -89,6 +89,24 @@ registerHooks({
   const demoTotalMs = performance.now() - demoStarted;
   assert(demo.stdout.includes('独立安装验证 🐈'));
   assert((await run(['chat', '安装后的对话 🐈'])).stdout.includes('安装后的对话 🐈'));
+  assert.equal((JSON.parse((await run(['tools'])).stdout) as unknown[]).length, 6);
+  await writeFile(join(installation, '工具文件.txt'), '安装后的工具 🐈');
+  const readTool = JSON.parse(
+    (await run(['tool', 'ReadFile', '--input', JSON.stringify({ path: '工具文件.txt' })])).stdout,
+  ) as { ok: boolean; content: string };
+  assert(readTool.ok && readTool.content.includes('安装后的工具 🐈'));
+  const writtenTool = JSON.parse(
+    (
+      await run([
+        'tool',
+        'WriteFile',
+        '--approve',
+        '--input',
+        JSON.stringify({ path: '创建文件.txt', content: '原子创建' }),
+      ])
+    ).stdout,
+  ) as { ok: boolean };
+  assert(writtenTool.ok);
 
   const bin = join(
     installation,
@@ -121,6 +139,7 @@ registerHooks({
         bin: 'passed',
         configuration: 'passed',
         demo: 'passed',
+        tools: 'passed (schemas, read, approved write)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

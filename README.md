@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M01 基础工程、M02 流式模型对话已完成**，支持 Ink 多轮界面、单次/管道模式和 OpenAI 兼容 Chat Completions / Responses。下一模块为 M03 六个编程工具。
+当前阶段：**M01–M03 已完成**，支持流式对话、六个编程工具与基础权限入口。下一模块 M04 将模型工具调用接入 Agent Loop，实现自动执行任务。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M02/spec.md)、[任务](docs/modules/M02/tasks.md)与[验收记录](docs/modules/M02/checklist.md)可直接查看；[M01 验收记录](docs/modules/M01/checklist.md)保留基础工程基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M03/spec.md)、[任务](docs/modules/M03/tasks.md)与[验收记录](docs/modules/M03/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
 
 ## 本地运行
 
@@ -34,7 +34,7 @@ npm run chat -- --provider mock --model mock-v1 "你好 MewCode"
 "解释流式响应" | npm run dev -- --provider mock --model mock-v1 chat
 ```
 
-终端中无提示词参数时启动交互界面，Enter 发送、Backspace 删除、Esc 取消回答、Ctrl+C 退出。有提示词参数或管道输入时使用纯文本输出。当前只支持对话，文件与命令工具在 M03/M04 接入。
+终端中无提示词参数时启动交互界面，Enter 发送、Backspace 删除、Esc 取消回答、Ctrl+C 退出。有提示词参数或管道输入时使用纯文本输出。`chat` 当前只支持对话，工具可通过下面的明确调用命令执行，模型自动调用在 M04 接入。
 
 构建后运行编译产物：
 
@@ -43,6 +43,29 @@ npm run build
 node dist/index.js --help
 node dist/index.js demo "你好 MewCode"
 ```
+
+## 明确调用编程工具
+
+Grep 需要 `rg`（ripgrep）可执行程序位于 PATH；Windows 可通过 `winget install BurntSushi.ripgrep.MSVC` 安装，Ubuntu 可用 `sudo apt-get install ripgrep`。工具调用无需模型密钥。
+
+```powershell
+npm run dev -- tools
+npm run dev -- tool ReadFile --input-file examples/tool-read.json
+npm run dev -- tool Glob --input-file examples/tool-glob.json
+npm run dev -- tool Grep --input-file examples/tool-grep.json
+npm run dev -- tool WriteFile --input-file examples/tool-write.json --approve
+npm run dev -- tool Bash --input-file examples/tool-shell.json --approve
+```
+
+`tools` 输出六个工具的完整 JSON Schema；`tool` 输出包含 `callId`、`ok`、`content`、`data` 和错误码的 JSON。示例写入会创建 `mewcode-demo.txt`。参数也可用 `--input <JSON>`；PowerShell 下推荐参数文件，避免原生命令的引号差异。
+
+ReadFile 返回完整文件的 `data.revision`。覆盖 WriteFile 或执行 EditFile 时，将该值放入参数的 `expectedRevision`；版本变化会拒绝修改。EditFile 还需 `path`、`oldText`、`newText`，默认唯一匹配，重复替换需显式 `replaceAll: true`。文件读写限 1MiB，读取输出最多 2000 行/32KiB，截断会标记 `truncated`。
+
+默认读取允许，文件修改与命令需要 `--approve` 授权本次操作。`--mode accept-edits` 允许文件编辑，命令仍需授权；`--mode plan` 禁止修改和 shell，即使提供 `--approve` 也不能绕过。路径限制在项目根内，并拒绝符号链接/junction、`.git`、`.env` 系列和本地配置/会话/缓存路径。
+
+Bash 工具在 Windows 默认运行 PowerShell，在 Linux/macOS 默认运行 Bash。Windows 使用 Git Bash 时需显式设置 `--shell bash --shell-executable "C:\Program Files\Git\bin\bash.exe"`。子进程不继承 API 密钥，支持输出上限、超时及取消；授权 shell 后命令具有当前用户的主机权限，工作目录和审批不是操作系统沙箱。PowerShell 原生命令保留最后一次 native exit code，内部命令失败返回 1，脚本可通过 `exit` 显式控制退出码。
+
+Glob 支持 `*`、`**`、`?` 和字符类，以及 `includeHidden`、`ignore`、`maxResults`；不自动解释 `.gitignore`。Grep 使用 rg 的忽略规则，`fileGlob` 为项目相对模式，`path` 可进一步限定搜索目录；搜索跳过超过 1MiB 的文件，结果和进程输出均有上限。
 
 ## 配置
 
@@ -83,6 +106,7 @@ provider:
 ```powershell
 npm run check
 npm run test:package
+npm run bench:tools
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。

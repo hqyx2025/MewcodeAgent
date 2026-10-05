@@ -1,0 +1,4 @@
+{
+  "pattern": "src/**/*.ts",
+  "maxResults": 30
+}
