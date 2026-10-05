@@ -31,5 +31,8 @@ jobs:
             choco install ripgrep --yes --no-progress
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Probe Windows shell environment
+        if: runner.os == 'Windows'
+        run: node --import tsx scripts/probe-windows-shell.ts
       - run: npm run check
       - run: npm run test:package
