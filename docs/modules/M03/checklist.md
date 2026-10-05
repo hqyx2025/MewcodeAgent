@@ -28,6 +28,8 @@ Windows，Node.js24.14.0、npm11.9.0、rg15.2.0。本模块仅用临时夹具和
 | `npm audit --json` | 0个漏洞；弃用带未修复braces间接漏洞的fast-glob，改用opendir+picomatch |
 | CI | Windows/Linux Node24，安装rg后执行全量检查与独立安装；具体远程结果以Actions为准 |
 
+首次M03 Windows CI暴露PowerShell启动挂起：过窄环境白名单缺少系统用户目录、身份与模块运行环境。云端对比诊断中，最小环境启动超时，补充基础系统变量后正常退出；已修复白名单并移除临时诊断脚本。API密钥和任意业务变量仍不继承，真实Shell回归继续验证这一边界。
+
 ## 万文件搜索与调优
 
 `npm run bench:tools`生成固定10000个UTF-8小文件（src/noise各5000）及1个应排除的依赖文件，在中文临时目录中逐场景采样3次。每个稀疏场景准确返回5个目标，广泛匹配截断在200条。下表为Windows同一Node/rg版本的本地暖文件缓存样本，不含生成夹具、安装或真实模型耗时。
