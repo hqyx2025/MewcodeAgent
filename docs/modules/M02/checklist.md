@@ -28,6 +28,8 @@
 | 真实模型冒烟 | doufuapi.com/v1、gpt-5.5、Responses、store:false，短提示得到OK，退出码0，约7.7秒 |
 | 云端CI | 已配置Windows/Linux Node24与独立安装检查；本记录仅证明本地Windows验收，远程结果见Actions |
 
+首次推送d9ef171的Linux CI全通过；Windows运行器将文件检出为CRLF，导致Prettier格式检查失败。已增加.gitattributes统一文本检出为LF，并验证启用core.autocrlf的独立检出；修复提交的跨平台结果见后续Actions。
+
 真实试连仅发送短提示及默认对话指令，不发送仓库文件；输出上限256 tokens、总超时60秒。费用未读取账单，不能从调用耗时推断价格。密钥保存在被忽略的.env.local中，供应商配置保存在被忽略的.mewcode/config.yaml中。
 
 ## 调优与资源边界
