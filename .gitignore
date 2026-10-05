@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.mewcode/config.yaml
+.mewcode/sessions/
+.mewcode/cache/
+*.log

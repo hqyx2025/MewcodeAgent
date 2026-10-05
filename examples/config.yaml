@@ -1,0 +1,25 @@
+# 可复制为项目内 .mewcode/config.yaml，或用户目录 ~/.mewcode/config.yaml。
+# demo 始终使用 MockProvider；chat 按 provider 配置选择离线或真实服务。
+provider:
+  kind: mock
+  model: mock-v1
+
+mode: default
+
+limits:
+  maxTurns: 20
+  timeoutMs: 120000
+  maxOutputTokens: 4096
+
+# Responses 配置示例（密钥值只放在环境变量或忽略的 .env.local 中）：
+# provider:
+#   kind: openai-compatible
+#   model: gpt-5.5
+#   wireApi: responses
+#   baseUrl: https://your-provider.example/v1
+#   apiKeyEnv: OPENAI_API_KEY
+# Responses 固定发送 store: false。
+# Chat Completions 服务使用自己的模型和端点，并可配置：
+#   wireApi: chat-completions
+#   maxTokensParameter: max_tokens # 或 max_completion_tokens
+#   includeUsage: true # 服务不支持 stream_options 时改为 false
