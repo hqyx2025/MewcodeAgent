@@ -43,7 +43,7 @@
 
 最终测试限时修正后本地再次运行完整check，51文件、434通过/2平台跳过，类型/lint/格式/依赖边界/构建通过。未重新测量性能；上述本地基准是各自标明条件的测量，不使用CI耗时替代。
 
-文档收尾提交只更新验收事实和说明，不冒充新的代码CI；本地交付tgz及SHA256/manifest保留在忽略的.release目录，manifest分别记录打包源提交与自动化验证提交。正式npm/GitHub发布、standardwebhooks许可澄清、人工TTY与macOS本机体验仍未完成；下一模块M17待实现。
+文档收尾提交只更新验收事实和说明，不冒充新的代码CI；本地交付tgz及SHA256/manifest保留在忽略的.release目录，manifest分别记录打包源提交与自动化验证提交。正式npm/GitHub发布、standardwebhooks许可澄清、人工TTY与macOS本机体验仍未完成。M16验收记录时下一模块M17待实现，后续展示交付见[M17验收](../M17/checklist.md)；本地tgz保留M16打包提交快照，不将M17文档更新冒充重新打包。
 
 ## 固定评估
 

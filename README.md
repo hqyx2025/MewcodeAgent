@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M16 工程与自动化验收通过**，支持既有Agent与协作能力，新增固定离线评估、压缩调优、运行时依赖许可和安装升级/回滚说明。Windows/Linux/macOS完整检查、五场景评估及独立安装包通过；正式发布前保留许可澄清与人工终端体验待办。实际结果见[M16验收记录](docs/modules/M16/checklist.md)，发布边界见[安装与恢复指南](docs/modules/M16/release-guide.md)。下一模块为M17项目展示与面试材料。
+当前阶段：**M01–M17工程、文档与离线演示已交付**。Windows/Linux/macOS完整检查、五场景评估及独立安装包通过；M17新增项目讲解、架构与决策、演示手册、技术问答及简历素材。实际工程结果见[M16验收记录](docs/modules/M16/checklist.md)，本轮演示见[M17验收记录](docs/modules/M17/checklist.md)。正式发布前保留许可澄清与人工终端体验待办，真实模型任务质量和费用尚未测量。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,17 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M16/spec.md)、[任务](docs/modules/M16/tasks.md)与[验收记录](docs/modules/M16/checklist.md)可直接查看；M01–M15 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。M17的[规格](docs/modules/M17/spec.md)、[任务](docs/modules/M17/tasks.md)与[验收记录](docs/modules/M17/checklist.md)可直接查看；M01–M16的验收记录保留各阶段证据。
+
+## 项目展示与面试
+
+- [项目讲解](docs/modules/M17/project-story.md)：两分钟稿件、十分钟讲解顺序与实际能力范围。
+- [架构与技术决策](docs/modules/M17/architecture-and-decisions.md)：任务时序图、模块图、实现取舍与协作选择。
+- [可复现演示](docs/modules/M17/demo-guide.md)：修复、纠错、Plan拒绝、精确审批及取消；默认离线夹具。
+- [16项技术问答](docs/modules/M17/interview-questions.md)：协议、工具、安全、上下文、恢复、MCP与团队。
+- [简历事实素材](docs/modules/M17/resume-facts.md)：可核验的项目描述、数据条件与使用边界。
+
+讲解中的模拟provider与真实文件/Shell操作分别说明。演示通过不代表任意真实模型任务成功，也不替代真人试讲或人工终端体验。
 
 ## 本地运行
 
