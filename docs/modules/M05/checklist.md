@@ -38,4 +38,4 @@
 
 指令是单任务快照；不自动发现项目根之外的用户/global指令，不实现AGENTS.override.md，不能从任意shell命令字符串推导真实访问目录。过长规则仅注入前缀并警告，已知凭据和常见形式脱敏不等于通用secret识别。发现新scope可能多用一轮模型调用；现有预算仍生效。
 
-跨平台CI：待本次代码推送后核对Windows/Linux结果。
+跨平台CI：代码提交`f0e092e693848b35182cccb444b5176afa6ff6df`已推送到main；[CI运行37408744799](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37408744799)整体success，ubuntu-latest与windows-latest两项任务的`npm run check`和`npm run test:package`均通过。该结果来自本次实际GitHub Actions运行，不代表macOS验证。
