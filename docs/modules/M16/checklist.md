@@ -14,6 +14,8 @@
 
 正式npm发布未执行；真实模型任务质量与费用未测量。人工TTY和macOS本机验证不能由CI替代。
 
+许可审阅待办：standardwebhooks的MIT包metadata与固定提交根Apache-2.0文本有差异，JavaScript目录没有独立LICENSE；归档文本保留来源，不把它当成已确认的MIT包级许可。详见[发布指南](release-guide.md)。
+
 ## 本地检查
 
 2026-10-06，Windows 11 Pro，Node v24.14.0、npm11.9.0、Git 2.53.0.windows.1。模拟provider、归属临时中文/空格路径；未调用收费模型或读取/输出忽略的密钥配置。
@@ -24,6 +26,8 @@
 - [x] npm run test:package：独立生产依赖安装、中文/空格路径、bin和所有既有模块离线闭环通过；新增随包许可文本与私有配置排除核验。
 - [x] help/version不加载重依赖；七次help中位数39.50ms，编译JS合计473944bytes，当次包398581bytes/展开1654397bytes（后续README同步会改变包大小）。
 - [ ] Windows/Linux/macOS CI：推送后回填。
+
+首轮三平台CI发现macOS安装夹具的系统临时路径使用/var别名，被记忆存储的链接守卫拒绝；完整check、许可与独立eval已通过。修正夹具创建时规范化realpath、删除前核对规范临时父目录，保留应用拒绝链接的边界；最终结果以修正提交的CI为准。
 
 ## 固定评估
 

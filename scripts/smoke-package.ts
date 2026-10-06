@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname, basename } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
@@ -15,7 +15,7 @@ const npmCli = process.env.npm_execpath;
 assert(npmCli, 'Run this script using npm run test:package');
 await stat(join(repo, 'dist', 'index.js'));
 
-const temporary = await mkdtemp(join(tmpdir(), 'mewcode-package-'));
+const temporary = await realpath(await mkdtemp(join(tmpdir(), 'mewcode-package-')));
 const installation = join(temporary, '安装 空间');
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !name.startsWith('MEWCODE_')),
@@ -596,6 +596,9 @@ registerHooks({
     )}\n`,
   );
 } finally {
-  assert(resolve(temporary).startsWith(resolve(join(tmpdir(), 'mewcode-package-'))));
+  assert(
+    dirname(resolve(temporary)) === (await realpath(tmpdir())) &&
+      basename(temporary).startsWith('mewcode-package-'),
+  );
   await rm(temporary, { recursive: true, force: true });
 }

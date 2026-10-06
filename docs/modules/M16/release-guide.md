@@ -10,6 +10,8 @@
 
 真实密钥由进程环境注入，编译后和安装后入口不会隐式读取源码仓库.env.local。`npm run chat/agent`是源码开发便捷入口，会读取存在的该文件。密钥不写入命令参数、任务JSON、示例、源码、日志或会话；对外问题报告只保留错误码、运行版本、协议及已脱敏信息。
 
+自定义MEWCODE_HOME和存储位置需使用规范实际路径；链接/junction仍被归属守卫拒绝。macOS的/var、/tmp可为系统别名，临时安装夹具创建后先取realpath，再设置目录和环境变量。
+
 ## 运行时依赖许可
 
 `npm run licenses`从锁文件筛选生产依赖，核对安装版本并生成随包[许可文本](../../../THIRD_PARTY_NOTICES.md)；`npm run licenses:check`只检查生成内容一致性。包含147个锁定生产依赖及传递依赖，开发工具不在此清单。清单保留上游声明标识，不自动将双许可选成某一个授权。
@@ -17,6 +19,8 @@
 清单对应当前锁文件和源码安装；tgz依赖声明中的传递版本范围仍由目标npm解析。需要完全复现时使用源码npm ci，并在准备实际分发时核对目标安装的依赖锁。
 
 standardwebhooks 1.1.1和yoga-layout 3.2.1的npm包缺少许可文本。本仓库在[来源记录](../../licenses/sources.json)固定对应上游提交/版本、文本文件与SHA256；前者使用npm metadata提供的gitHead，后者使用v3.2.1指向的提交。生成和CI核对均离线读取已归档文本，不下载最新分支。其他文本来自实际安装包，包括NOTICE；这份清单不替代对分发义务的审阅。
+
+已知差异：standardwebhooks 1.1.1的npm/package.json声明MIT，但上述gitHead的仓库根LICENSE为Apache-2.0，libraries/javascript目录无独立LICENSE。归档根文本用于保留来源事实，尚不能确认它适用于该JavaScript包或替代缺失的MIT包级文本；此项需上游澄清。许可一致性检查只确认版本/文本/hash一致，发布前的许可审阅仍有这一待办。
 
 ## 升级与回滚
 

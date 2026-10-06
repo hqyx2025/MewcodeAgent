@@ -237,6 +237,8 @@ npm run release:prepare
 
 `release:prepare`验证本地待发布版本；`npm pack`会重新构建并核对随包[运行时依赖许可](THIRD_PARTY_NOTICES.md)。正式npm发布尚未执行。安装、保留旧包、升级/回滚、故障恢复和人工终端检查见[发布指南](docs/modules/M16/release-guide.md)，模块边界与取舍见[架构复盘](docs/modules/M16/architecture-review.md)。
 
+发布前待澄清：standardwebhooks 1.1.1的包metadata声明MIT，而对应提交根LICENSE为Apache-2.0；JavaScript包级许可文本缺失。随包保留声明和根文本来源，许可一致性检查不代表该差异已解决。
+
 ## 模型执行任务
 
 ```powershell
