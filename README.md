@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M16 整体调优与发布准备验收中**，支持既有Agent与协作能力，新增固定离线评估、压缩调优、运行时依赖许可和安装升级/回滚说明。实际结果见[M16验收记录](docs/modules/M16/checklist.md)，发布边界见[安装与恢复指南](docs/modules/M16/release-guide.md)。
+当前阶段：**M16 工程与自动化验收通过**，支持既有Agent与协作能力，新增固定离线评估、压缩调优、运行时依赖许可和安装升级/回滚说明。Windows/Linux/macOS完整检查、五场景评估及独立安装包通过；正式发布前保留许可澄清与人工终端体验待办。实际结果见[M16验收记录](docs/modules/M16/checklist.md)，发布边界见[安装与恢复指南](docs/modules/M16/release-guide.md)。下一模块为M17项目展示与面试材料。
 
 ## 先阅读这些文档
 
@@ -449,7 +449,7 @@ npm run bench:context
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。
 
-GitHub Actions 已配置 Windows/Linux + Node.js 24；远程运行结果以实际 CI 为准。
+GitHub Actions 已配置 Windows/Linux/macOS + Node.js 24；M16验证提交 `72200a6` 的[三平台CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37474181822)全部通过，测试计数与实际运行版本见模块验收记录。
 
 ## 目标能力
 

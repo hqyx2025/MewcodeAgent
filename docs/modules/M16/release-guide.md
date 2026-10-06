@@ -6,6 +6,8 @@
 
 使用 `npm pack --pack-destination .release` 生成本地tgz；预打包会重新构建并核对许可文本。目标目录先由用户或程序创建。仓库根的私有配置、.env、测试、文档源和开发工具不进入发布包；包内容为dist、README、项目LICENSE、THIRD_PARTY_NOTICES及npm必需metadata。独立验证同时核对许可文件存在、私有配置不存在和bin可用。压缩后的tgz可保留用于安装与回滚，不上传即不构成npm发布。
 
+本轮交付包保留在忽略的 `.release` 目录，配套SHA256和JSON manifest记录打包源提交、自动化验证提交、三平台CI链接、实际Node版本与未完成的发布步骤。文档验收提交与代码验证提交分别记录；文档更新会改变包hash和大小。安装前可用 `Get-FileHash <tgz绝对路径> -Algorithm SHA256` 核对，不能把本地包记录当作正式npm发布凭据。
+
 安装本地包可用 `npm install --global <tgz绝对路径>`，也可使用隔离prefix：`npm install --prefix <安装目录> <tgz绝对路径>`，然后运行安装目录下的mewcode入口。后者避免替换现有全局版本。先验证 `mewcode --version`、`mewcode --help`、`mewcode --provider mock --model mock-v1 chat "离线验证"`，再连接实际模型。
 
 真实密钥由进程环境注入，编译后和安装后入口不会隐式读取源码仓库.env.local。`npm run chat/agent`是源码开发便捷入口，会读取存在的该文件。密钥不写入命令参数、任务JSON、示例、源码、日志或会话；对外问题报告只保留错误码、运行版本、协议及已脱敏信息。
