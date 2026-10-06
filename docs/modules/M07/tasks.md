@@ -7,4 +7,6 @@
 - [x] CLI 静态查看、显式发现/调用和 Agent 可选服务。
 - [x] 完成模拟服务与进程树回归。
 - [x] 完成本地完整检查、打包安装和性能基准。
-- [ ] 更新 README/路线；提交推送并核对实际 CI。
+- [x] 更新 README/路线；提交推送并核对实际 Windows/Linux CI，全部成功。
+
+代码：`190c842bfb501212de8ffd064997140f185d3ad8`；[CI运行](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37415679243)。下一模块 M08：上下文管理。
