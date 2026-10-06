@@ -11,4 +11,4 @@
 - [x] 增加确定性临时项目回归并更新安装冒烟。
 - [x] 本地 `npm run check`、`npm run test:package` 与 `npm run bench:agent` 验证。
 - [x] 用户 gpt-5.5 Responses 服务临时目录只读工具冒烟。
-- [ ] 推送并核对 Windows/Linux GitHub Actions。
+- [x] 推送并核对 Windows/Linux GitHub Actions；代码提交 `c5ed520` 的[CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37405545914)全部通过。

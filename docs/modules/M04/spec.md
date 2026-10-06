@@ -1,6 +1,6 @@
 # M04：Agent Loop 与模型工具调用规格
 
-状态：已完成（2026-10-06，Windows Node 24.14.0；Linux CI 待本次提交验证）。
+状态：已完成（2026-10-06，Windows Node 24.14.0本地验收；Windows/Linux Node24 CI通过）。
 
 ## 目标
 

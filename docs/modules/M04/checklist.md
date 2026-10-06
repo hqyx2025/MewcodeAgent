@@ -33,4 +33,4 @@
 
 token预算依赖服务报告或字符估算，检查在轮间和工具执行前进行；已发出的请求可能超出预算，不是精确费用硬上限。没有持久恢复/自动压缩或并发调度。TTY审批使用readline逐调用确认，非TTY拒绝；更完整的审批交互留给M06。Shell具有主机用户权限，M03限制不构成操作系统沙箱。
 
-跨平台CI：本次提交推送后核对Windows/Linux结果。
+跨平台CI：代码提交 `c5ed520e06c9904c1272441dba3edd9212df619f` 的[GitHub Actions](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37405545914)中，Windows/Linux两任务均 `success`，包括 `npm run check` 和 `npm run test:package`。前一完整实现提交 `4a8abc9` 的[CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37405265179)也全部通过。
