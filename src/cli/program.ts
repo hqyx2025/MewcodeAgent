@@ -10,6 +10,7 @@ interface CLIOptions {
   mode?: string;
   baseUrl?: string;
   apiKeyEnv?: string;
+  mcp?: string[];
   storageDir?: string;
   logFile?: string;
   json?: boolean;
@@ -143,6 +144,7 @@ export function createProgram(): Command {
     .option('--max-turns <count>', '模型轮数上限（1–1000）')
     .option('--max-total-tokens <count>', '累计输入+输出token上限（无usage时估算）')
     .option('--timeout-ms <milliseconds>', '整个任务时限（1–3600000）')
+    .option('--mcp <id...>', '显式连接配置中的 MCP 服务（启动与调用均需审批）')
     .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（父目录须存在）')
     .action(async (task: string, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
@@ -156,6 +158,38 @@ export function createProgram(): Command {
       const { listTools } = await import('./tools.js');
       listTools();
     });
+  program
+    .command('mcp')
+    .description('查看或发现显式配置的 MCP 服务')
+    .argument('[action]', 'list 或 discover', 'list')
+    .argument('[id]', '服务 ID')
+    .argument('[tool]', '远端工具名称或本地命名空间名称')
+    .option('--approve-start', '明确授权本次服务连接；不能覆盖 Plan 或 deny')
+    .option('--approve', '明确授权本次外部工具调用')
+    .option('--input <json>', '外部工具参数 JSON')
+    .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件')
+    .action(
+      async (
+        action: string,
+        id: string | undefined,
+        tool: string | undefined,
+        _options: unknown,
+        command: Command,
+      ) => {
+        const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+        if (action === 'list') {
+          const { listMCP } = await import('./mcp.js');
+          listMCP(loaded);
+          return;
+        }
+        if (!['discover', 'call'].includes(action) || !id || (action === 'call' && !tool)) {
+          const { AppError } = await import('../shared/errors.js');
+          throw new AppError('CONFIG_INVALID', 'mcp discover <id> 或 mcp call <id> <tool>');
+        }
+        const { runMCP } = await import('./mcp.js');
+        await runMCP(loaded, id, action as 'discover' | 'call', tool, command.opts());
+      },
+    );
   program
     .command('tool')
     .description('明确调用一个工具，输出JSON；写入/命令默认需--approve本次授权')

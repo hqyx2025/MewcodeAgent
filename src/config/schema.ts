@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { permissionRuleSchema } from '../security/rules.js';
+import { mcpSettingsSchema } from '../mcp/config.js';
 
 export const providerKinds = ['mock', 'openai-compatible', 'anthropic'] as const;
 export const agentModes = ['plan', 'default', 'accept-edits'] as const;
@@ -50,6 +51,7 @@ const storageSchema = z.strictObject({
 const permissionsSchema = z.strictObject({ rules: z.array(permissionRuleSchema).max(400) });
 
 export const configPatchSchema = z.strictObject({
+  mcp: mcpSettingsSchema.optional(),
   provider: providerSchema.partial().optional(),
   mode: z.enum(agentModes).optional(),
   limits: limitsSchema.partial().optional(),
@@ -59,6 +61,7 @@ export const configPatchSchema = z.strictObject({
 
 export const configSchema = z
   .strictObject({
+    mcp: mcpSettingsSchema.default({ servers: {} }),
     provider: providerSchema,
     mode: z.enum(agentModes),
     limits: limitsSchema,
@@ -79,6 +82,7 @@ export type Settings = z.infer<typeof configSchema>;
 export type ConfigPatch = z.infer<typeof configPatchSchema>;
 
 export const defaultSettings: Settings = {
+  mcp: { servers: {} },
   provider: { kind: 'mock', model: 'mock-v1' },
   mode: 'default',
   limits: { maxTurns: 20, timeoutMs: 120_000, maxOutputTokens: 4_096 },
@@ -88,6 +92,7 @@ export const defaultSettings: Settings = {
 
 export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
   return {
+    mcp: { servers: { ...current.mcp.servers, ...patch.mcp?.servers } },
     provider: mergeDefined(current.provider, patch.provider),
     mode: patch.mode ?? current.mode,
     limits: mergeDefined(current.limits, patch.limits),

@@ -17,12 +17,20 @@ export class ToolRegistry {
     return tool;
   }
 
+  isHidden(name: string): boolean {
+    return this.tools.get(name)?.hidden === true;
+  }
+
   definitions() {
-    return [...this.tools.values()].map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      effect: tool.effect,
-      parameters: z.toJSONSchema(tool.schema, { target: 'draft-7', io: 'input' }),
-    }));
+    return [...this.tools.values()]
+      .filter((tool) => !tool.hidden)
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        effect: tool.effect,
+        parameters: structuredClone(
+          tool.parameters ?? z.toJSONSchema(tool.schema, { target: 'draft-7', io: 'input' }),
+        ),
+      }));
   }
 }

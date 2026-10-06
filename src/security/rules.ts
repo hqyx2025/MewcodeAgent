@@ -28,7 +28,7 @@ export const permissionRuleSchema = z.strictObject({
     .string()
     .regex(/^[A-Za-z][\w.-]{0,127}$/)
     .optional(),
-  effect: z.enum(['read', 'write', 'shell']).optional(),
+  effect: z.enum(['read', 'write', 'shell', 'external']).optional(),
   path: rulePathSchema.optional(),
 });
 

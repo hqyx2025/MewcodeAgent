@@ -257,11 +257,13 @@ export class ToolExecutor {
       const rawPath =
         tool.name === 'Glob'
           ? (wildcard < 0 ? globParts.slice(0, -1) : globParts.slice(0, wildcard)).join('/') || '.'
-          : typeof fields.path === 'string'
-            ? fields.path
-            : typeof fields.cwd === 'string'
-              ? fields.cwd
-              : '.';
+          : tool.effect === 'external'
+            ? '.'
+            : typeof fields.path === 'string'
+              ? fields.path
+              : typeof fields.cwd === 'string'
+                ? fields.cwd
+                : '.';
       // Resolve scope lexically first. Builtin prepare and run still validate filesystem state.
       const local = this.paths.display(resolve(this.paths.root, rawPath));
       let decision = this.decision(tool.name, tool.effect, local, recursive);
@@ -294,6 +296,7 @@ export class ToolExecutor {
             input,
             target: prepared.target,
             preview: prepared.preview,
+            authorizationKey: prepared.authorizationKey,
             shell: this.shell,
             policyVersion,
           }),
@@ -392,7 +395,7 @@ export class ToolExecutor {
   }
 }
 
-type ToolContextEffect = 'read' | 'write' | 'shell';
+type ToolContextEffect = 'read' | 'write' | 'shell' | 'external';
 function modeRank(mode: ToolMode): number {
   return { plan: 0, default: 1, 'accept-edits': 2 }[mode];
 }

@@ -61,7 +61,7 @@ try {
     `import { registerHooks } from 'node:module';
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (['js-yaml', 'zod', 'ink', 'react', 'openai', '@anthropic-ai/sdk', 'picomatch'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
+    if (['js-yaml', 'zod', 'ink', 'react', 'openai', '@anthropic-ai/sdk', '@modelcontextprotocol/sdk', 'ajv', 'picomatch'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
       throw new Error('Heavy dependency loaded on help/version path');
     }
     return nextResolve(specifier, context);
@@ -140,6 +140,51 @@ registerHooks({
   ) as { ok: boolean };
   assert(writtenTool.ok);
 
+  const mcpFixture = join(installation, 'mock-mcp.mjs');
+  await writeFile(mcpFixture, await readFile(join(repo, 'tests', 'support', 'mcp-server.mjs')));
+  const mcpConfig = join(installation, 'mcp-config.json');
+  await writeFile(
+    mcpConfig,
+    JSON.stringify({
+      mcp: {
+        servers: {
+          mock: {
+            transport: 'stdio',
+            command: process.execPath,
+            args: [mcpFixture],
+            cwd: '.',
+            connectTimeoutMs: 15_000,
+          },
+        },
+      },
+    }),
+  );
+  assert.equal(
+    JSON.parse((await run(['--config', mcpConfig, 'mcp', 'list'])).stdout).mock.transport,
+    'stdio',
+  );
+  const mcpCatalog = JSON.parse(
+    (await run(['--config', mcpConfig, 'mcp', 'discover', 'mock', '--approve-start'])).stdout,
+  ) as unknown[];
+  assert.equal(mcpCatalog.length, 2);
+  const mcpCall = JSON.parse(
+    (
+      await run([
+        '--config',
+        mcpConfig,
+        'mcp',
+        'call',
+        'mock',
+        'echo',
+        '--approve-start',
+        '--approve',
+        '--input',
+        JSON.stringify({ text: 'installed MCP' }),
+      ])
+    ).stdout,
+  ) as { ok: boolean; content: string };
+  assert(mcpCall.ok && mcpCall.content === 'installed MCP');
+
   const bin = join(
     installation,
     'node_modules',
@@ -175,6 +220,7 @@ registerHooks({
         agent: 'passed (offline Plan tool loop, JSONL)',
         prompt: 'passed (instruction metadata without source text)',
         permissions: 'passed (mode inspection, persisted redacted decision)',
+        mcp: 'passed (inert list, mock stdio discovery and approved call)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

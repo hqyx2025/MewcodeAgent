@@ -324,14 +324,22 @@ export class AgentLoop {
                   message: '本批未执行：项目指令更新需要重新计划。',
                 },
               }
-            : await this.executor.execute(
-                {
+            : this.executor.registry.isHidden(call.name)
+              ? {
                   callId: call.callId,
                   name: call.name,
-                  input: JSON.parse(call.arguments) as unknown,
-                },
-                combined,
-              );
+                  ok: false,
+                  content: '工具不对模型开放。',
+                  error: { code: 'TOOL_NOT_FOUND', message: '工具不对模型开放。' },
+                }
+              : await this.executor.execute(
+                  {
+                    callId: call.callId,
+                    name: call.name,
+                    input: JSON.parse(call.arguments) as unknown,
+                  },
+                  combined,
+                );
           if (!replan) {
             toolCalls++;
             failures = result.ok ? 0 : failures + 1;

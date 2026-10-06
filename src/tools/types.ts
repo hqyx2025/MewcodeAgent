@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { ProjectPaths } from '../security/paths.js';
 
-export type ToolEffect = 'read' | 'write' | 'shell';
+export type ToolEffect = 'read' | 'write' | 'shell' | 'external';
 export type ToolMode = 'plan' | 'default' | 'accept-edits';
 
 export interface ToolCall {
@@ -48,12 +48,15 @@ export interface ToolContext {
 }
 
 export interface PreparedTool {
+  authorizationKey?: string;
   target: string;
   preview: string;
   run(): Promise<ToolPayload>;
 }
 
 export interface ToolDefinition {
+  hidden?: boolean;
+  parameters?: Record<string, unknown>;
   name: string;
   description: string;
   effect: ToolEffect;

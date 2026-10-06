@@ -10,6 +10,7 @@ import type { ApprovalAnswer, ApprovalRequest } from '../tools/types.js';
 import { permissionRuntime } from './permissions.js';
 import { MockProvider } from '../providers/mock.js';
 import type { PromptManifest } from '../core/prompt.js';
+import { MCPManager } from '../mcp/manager.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -17,6 +18,7 @@ export interface RunCLIOptions {
   maxTotalTokens?: string;
   timeoutMs?: string;
   auditFile?: string;
+  mcp?: string[];
 }
 
 function sensitiveValues(loaded: LoadedConfiguration): string[] {
@@ -114,10 +116,23 @@ export async function runAgent(
   const maxTurns = positive(options.maxTurns, loaded.settings.limits.maxTurns, 1000);
   const timeoutMs = positive(options.timeoutMs, loaded.settings.limits.timeoutMs, 3_600_000);
   const maxTotalTokens = positive(options.maxTotalTokens, 200_000, 100_000_000);
+  const selected = Object.fromEntries(
+    [...new Set(options.mcp ?? [])].map((id) => {
+      const config = loaded.settings.mcp.servers[id];
+      if (!config) throw new AppError('CONFIG_INVALID', '选择的 MCP 服务不存在。');
+      return [id, config];
+    }),
+  );
+  const registry = createBuiltinRegistry();
+  const mcp = new MCPManager(registry, selected, process.env, sensitiveValues(loaded));
   const provider = await createProvider(loaded.settings);
   const runtime = await permissionRuntime(loaded, options.auditFile, options.json);
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once('SIGINT', cancel);
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]);
   try {
-    const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+    const executor = await ToolExecutor.create(registry, {
       root: loaded.cwd,
       mode: loaded.settings.mode,
       timeoutMs,
@@ -125,6 +140,11 @@ export async function runAgent(
       rules: runtime.rules,
       audit: runtime.audit,
     });
+    for (const id of Object.keys(selected)) {
+      const result = await mcp.connect(id, executor, signal);
+      if (!result.ok)
+        process.stderr.write(`${result.name}：${result.error?.code ?? 'MCP_CONNECT_FAILED'}\n`);
+    }
     const agent = new AgentLoop(provider, executor, {
       model: loaded.settings.provider.model,
       mode: loaded.settings.mode,
@@ -134,12 +154,9 @@ export async function runAgent(
       maxTotalTokens,
       sensitiveValues: sensitiveValues(loaded),
     });
-    const controller = new AbortController();
-    const cancel = () => controller.abort();
-    process.once('SIGINT', cancel);
     const shownWarnings = new Set<string>();
     try {
-      for await (const event of agent.run(task, controller.signal)) {
+      for await (const event of agent.run(task, signal)) {
         if (options.json) process.stdout.write(`${JSON.stringify(event)}\n`);
         else if (event.type === 'prompt_info') printPrompt(event.manifest, shownWarnings);
         else if (event.type === 'text_delta') process.stdout.write(terminalText(event.text));
@@ -163,6 +180,8 @@ export async function runAgent(
       process.removeListener('SIGINT', cancel);
     }
   } finally {
+    await mcp.close();
+    process.removeListener('SIGINT', cancel);
     await runtime.close();
   }
 }

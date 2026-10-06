@@ -37,11 +37,14 @@
     "bench:agent": "tsx scripts/benchmark-agent.ts",
     "bench:prompt": "tsx scripts/benchmark-prompt.ts",
     "bench:permissions": "tsx scripts/benchmark-permissions.ts",
+    "bench:mcp": "tsx scripts/benchmark-mcp.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:boundaries && npm test && npm run build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ajv": "8.20.0",
     "commander": "15.0.0",
     "ink": "8.0.0",
     "js-yaml": "5.4.2",

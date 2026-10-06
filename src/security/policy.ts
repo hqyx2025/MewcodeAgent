@@ -46,7 +46,7 @@ export function evaluatePermission(
   const allowed = matching.filter(
     (rule) => rule.decision === 'allow' && ['user', 'cli'].includes(rule.source),
   );
-  if (effect !== 'shell' && allowed.length)
+  if (effect !== 'shell' && effect !== 'external' && allowed.length)
     return {
       decision: 'allow',
       reason: 'rule-allow',

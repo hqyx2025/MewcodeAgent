@@ -10,7 +10,7 @@ module.exports = {
     {
       name: 'engine-is-independent-of-ui',
       severity: 'error',
-      from: { path: '^src/(core|providers|config|shared|tools|security)/' },
+      from: { path: '^src/(core|providers|config|shared|tools|security|mcp)/' },
       to: { path: '^src/(cli|ui)/|node_modules/(react|ink)/' },
     },
     {

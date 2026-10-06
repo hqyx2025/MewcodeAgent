@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M01–M06 已完成本地验收**，支持流式对话、六个编程工具、有界 Agent Loop、项目指令与分层权限。下一模块 M07 接入 MCP。
+当前阶段：**M07 已完成本地模拟验收**，支持流式对话、六个编程工具、有界 Agent Loop、项目指令、分层权限与 MCP 客户端。M07 的兼容性和限制见 [规格](docs/modules/M07/spec.md) 与[验收记录](docs/modules/M07/checklist.md)。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M06/spec.md)、[任务](docs/modules/M06/tasks.md)与[验收记录](docs/modules/M06/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M07/spec.md)、[任务](docs/modules/M07/tasks.md)与[验收记录](docs/modules/M07/checklist.md)可直接查看；M01–M06 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -58,6 +58,36 @@ npm run agent -- "修复一个小 bug 并运行测试"
 
 `run` 支持 `--max-turns`（默认配置 20）、`--max-total-tokens`（默认 200000）、`--timeout-ms`（默认配置 120000）。连续三次工具失败停止；损坏/截断分片不执行工具；取消保留已完成的修改。token 使用服务报告或明确标记的估算，不能视为精确费用上限。
 
+## MCP 服务
+
+MCP 默认不启动。配置只保存命令、项目内 cwd 和环境变量名称，不保存密钥；stdio 与 Streamable HTTP 服务都通过 `external` 权限进入统一审批入口。Plan 模式禁止连接，服务端的只读提示不能放宽权限。
+
+```yaml
+mcp:
+  servers:
+    local:
+      transport: stdio
+      command: 'C:/tools/mcp-server.exe'
+      args: []
+      cwd: .
+      env:
+        API_TOKEN: MCP_API_TOKEN
+    remote:
+      transport: http
+      url: https://example.test/mcp
+      headersEnv:
+        Authorization: MCP_AUTH_HEADER
+```
+
+```powershell
+npm run dev -- mcp list
+npm run dev -- mcp discover local --approve-start
+npm run dev -- mcp call local echo --approve-start --approve --input '{"text":"hello"}'
+npm run agent -- "查询本地服务" --mcp local
+```
+
+`mcp discover` 和 `mcp call` 的连接授权、工具调用授权分开处理。MCP 工具名称使用服务 ID 与远端名称摘要，输入/输出只接受有界 JSON Schema 子集；媒体、资源、sampling、elicitation 和自动重试不执行。调用超时或断连时不重放请求，外部副作用可能已经发生。
+
 `--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。当前工具串行执行、上下文有界，不持久化或自动恢复任务。
 
 ## 权限规则与审计
@@ -80,7 +110,7 @@ permissions:
       path: src
 ```
 
-支持 `decision: allow/ask/deny`、可选 `tool`、`effect: read/write/shell`、`path`。path 是项目相对字面路径，使用 `/`，覆盖子目录；不支持 glob、命令前缀或目录穿越。规则累积且 deny > ask > allow；项目 allow 不能免除修改审批，只有用户/CLI的显式文件 allow 可授予文件权限，shell 始终需审批。项目配置也不能将 default 或 Plan 自动改成 accept-edits；可用用户配置、环境变量或 `--mode` 显式选择模式。
+支持 `decision: allow/ask/deny`、可选 `tool`、`effect: read/write/shell/external`、`path`。path 是项目相对字面路径，使用 `/`，覆盖子目录；不支持 glob、命令前缀或目录穿越。规则累积且 deny > ask > allow；项目 allow 不能免除修改审批，只有用户/CLI的显式文件 allow 可授予文件权限，shell 和 external 始终需审批。项目配置也不能将 default 或 Plan 自动改成 accept-edits；可用用户配置、环境变量或 `--mode` 显式选择模式。
 
 递归 Glob/Grep 范围与受限目录相交时，整次查询被拒绝或要求审批，应缩小搜索范围。ReadFile 路径 deny 同时保护递归读取、项目指令和编辑准备阶段；需要审批的项目指令不会被自动注入。模型、普通文件或项目指令不能修改权限。
 
@@ -169,6 +199,7 @@ npm run bench:tools
 npm run bench:agent
 npm run bench:prompt
 npm run bench:permissions
+npm run bench:mcp
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。

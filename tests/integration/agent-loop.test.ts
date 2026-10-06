@@ -60,6 +60,39 @@ describe('Agent Loop with real tools in a temporary project', () => {
     return new AgentLoop(model, executor, settings);
   }
 
+  it('cannot invoke hidden connection tools through a model call', async () => {
+    let executions = 0;
+    const registry = createBuiltinRegistry();
+    const read = registry.get('ReadFile');
+    registry.register({
+      ...read,
+      name: 'HiddenConnection',
+      hidden: true,
+      prepare: async () => ({
+        target: box.cwd,
+        preview: 'hidden',
+        run: async () => {
+          executions++;
+          return { content: 'unexpected' };
+        },
+      }),
+    });
+    const executor = await ToolExecutor.create(registry, { root: box.cwd });
+    const agent = new AgentLoop(
+      provider((_request, turn) =>
+        turn === 1 ? [call('HiddenConnection', { path: 'unused' }), tools] : [stop],
+      ),
+      executor,
+      options,
+    );
+    const events = await collect(agent);
+    expect(executions).toBe(0);
+    expect(events.find((event) => event.type === 'tool_result')).toMatchObject({
+      result: { error: { code: 'TOOL_NOT_FOUND' } },
+    });
+    expect(requests[0]?.tools?.some((tool) => tool.name === 'HiddenConnection')).toBe(false);
+  });
+
   it('searches, reads, edits using the returned revision, executes a test and reports evidence', async () => {
     await writeFile(join(box.cwd, 'sum.mjs'), 'export const sum = (a, b) => a - b;\n');
     await writeFile(
