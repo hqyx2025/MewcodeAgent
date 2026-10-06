@@ -1,5 +1,6 @@
-import { mkdir, writeFile, link, symlink, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile, link, symlink, stat, realpath } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { SkillCatalog } from '../../src/core/skills.js';
@@ -9,6 +10,56 @@ import { createSandbox, removeSandbox } from '../support/sandbox.js';
 import { writeSkill } from '../support/skills.js';
 
 describe('skill discovery and selected resources', () => {
+  it.skipIf(process.platform !== 'win32')(
+    'checks the canonical resource filename before read rules for Windows 8.3 aliases',
+    async (context) => {
+      const box = await createSandbox();
+      try {
+        const root = await writeSkill(box.projectDirectory, 'review', 'Review fixes');
+        const file = join(root, 'private-resource-long-name.md');
+        await writeFile(file, 'must-not-read-private-resource');
+        const canonical = await realpath(file);
+        const script =
+          "$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $fso = New-Object -ComObject Scripting.FileSystemObject; $fso.GetFile('" +
+          file.replaceAll("'", "''") +
+          "').ShortPath";
+        const short = basename(
+          execFileSync(
+            'powershell.exe',
+            [
+              '-NoLogo',
+              '-NoProfile',
+              '-NonInteractive',
+              '-EncodedCommand',
+              Buffer.from(script, 'utf16le').toString('base64'),
+            ],
+            { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+          ).trim(),
+        );
+        if (!short.includes('~')) {
+          context.skip('Filesystem has no 8.3 filename alias for the fixture');
+          return;
+        }
+        const registry = createBuiltinRegistry();
+        const catalog = new SkillCatalog({
+          ...box,
+          allows: (path) => path.toLowerCase() !== canonical.toLowerCase(),
+        });
+        catalog.register(registry);
+        await catalog.select('', ['review']);
+        const executor = await ToolExecutor.create(registry, { root: box.cwd, mode: 'plan' });
+        const result = await executor.execute({
+          callId: randomUUID(),
+          name: 'SkillRead',
+          input: { name: 'review', resource: short },
+        });
+        expect(result).toMatchObject({ ok: false, error: { code: 'SKILL_INVALID' } });
+        expect(JSON.stringify(result)).not.toContain('must-not-read-private-resource');
+      } finally {
+        await removeSandbox(box.root);
+      }
+    },
+  );
   it('indexes only prefixes, applies project priority, loads a whole body on demand and refreshes metadata', async () => {
     const box = await createSandbox();
     try {

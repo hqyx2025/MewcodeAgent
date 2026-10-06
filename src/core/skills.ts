@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { opendir } from 'node:fs/promises';
+import { lstat, opendir, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { JSON_SCHEMA, load } from 'js-yaml';
 import { z } from 'zod';
@@ -305,8 +305,19 @@ export class SkillCatalog {
     const local = relative(root, path);
     if (isAbsolute(local) || local === '..' || local.startsWith(`..${sep}`)) fail();
     await safeDirectory(dirname(path));
-    if (!this.options.allows(path)) fail();
-    return path;
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1) fail();
+    const canonical = await realpath(path);
+    const canonicalLocal = relative(root, canonical);
+    if (
+      isAbsolute(canonicalLocal) ||
+      canonicalLocal === '..' ||
+      canonicalLocal.startsWith(`..${sep}`) ||
+      canonicalLocal.split(sep).some((part) => /^\.env(?:\.|$)|^\.git$/i.test(part))
+    )
+      fail();
+    if (this.sensitive(canonical) || !this.options.allows(canonical)) fail();
+    return canonical;
   }
 
   register(registry: ToolRegistry): void {
