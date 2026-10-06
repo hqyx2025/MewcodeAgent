@@ -8,11 +8,13 @@ import type { ToolMode } from '../tools/types.js';
 import { AppError } from '../shared/errors.js';
 import { memorySecrets } from './memory-runtime.js';
 import { redactInstruction } from '../shared/redact.js';
+import type { SkillCatalog } from '../core/skills.js';
 
 export function commandRuntime(
   loaded: LoadedConfiguration,
   executor: ToolExecutor,
   host?: Pick<CommandHost, 'clear' | 'compact' | 'setModel'>,
+  skills?: SkillCatalog,
 ): CommandRegistry {
   const ceiling = loaded.settings.mode;
   const rank = { plan: 0, default: 1, 'accept-edits': 2 };
@@ -25,6 +27,11 @@ export function commandRuntime(
   return new CommandRegistry(
     {
       ...host,
+      ...(skills
+        ? {
+            skills: async (refresh: boolean) => JSON.stringify(await skills.list(refresh), null, 2),
+          }
+        : {}),
       model: () => loaded.settings.provider.model,
       setModel: (model) => {
         if (redactInstruction(model, memorySecrets(loaded)) !== model)

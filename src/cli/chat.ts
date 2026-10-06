@@ -7,6 +7,7 @@ import { ToolExecutor } from '../tools/executor.js';
 import { commandRuntime } from './commands.js';
 import type { CommandResult } from '../core/commands.js';
 import type { LLMProvider } from '../providers/types.js';
+import { skillRuntime, printSkills } from './skills.js';
 
 async function readPrompt(): Promise<string> {
   let prompt = '';
@@ -20,7 +21,11 @@ async function readPrompt(): Promise<string> {
   return prompt.trim();
 }
 
-export async function runChat(loaded: LoadedConfiguration, prompt?: string): Promise<void> {
+export async function runChat(
+  loaded: LoadedConfiguration,
+  prompt?: string,
+  options: { skill?: string[] } = {},
+): Promise<void> {
   const { createProvider } = await import('../providers/create.js');
   const { Conversation } = await import('../core/conversation.js');
   let implementation: LLMProvider | undefined;
@@ -34,38 +39,51 @@ export async function runChat(loaded: LoadedConfiguration, prompt?: string): Pro
   };
   const registry = createBuiltinRegistry();
   const memory = await memoryRuntime(loaded, registry);
+  const skills = skillRuntime(loaded, registry);
   const executor = await ToolExecutor.create(registry, {
     root: loaded.cwd,
     mode: loaded.settings.mode,
     rules: [...loaded.permissionRules, ...memory.rules],
   });
+  skills.bind(executor);
   const shownMemoryWarnings = new Set<string>();
   const conversation = new Conversation(provider, {
     model: loaded.settings.provider.model,
     maxOutputTokens: loaded.settings.limits.maxOutputTokens,
     timeoutMs: loaded.settings.limits.timeoutMs,
+    skills: (query, signal, explicit) =>
+      skills.catalog.select(query, [...(options.skill ?? []), ...explicit], signal),
     memory: async (query, signal) => {
       const selection = await memory.store.select(executor, query, loaded.settings.memory, signal);
       printMemoryWarnings(selection.warnings, shownMemoryWarnings);
       return selection;
     },
   });
-  const commands = commandRuntime(loaded, executor, {
-    clear: () => conversation.clear(),
-    compact: () => conversation.compact(),
-    setModel: (model) => conversation.setModel(model),
-  });
+  const commands = commandRuntime(
+    loaded,
+    executor,
+    {
+      clear: () => conversation.clear(),
+      compact: () => conversation.compact(),
+      setModel: (model) => conversation.setModel(model),
+    },
+    skills.catalog,
+  );
   const handoff = async (result: Extract<CommandResult, { kind: 'agent' }>) => {
     const { runAgentTask } = await import('./run.js');
     await runAgentTask(
       { ...loaded, settings: { ...loaded.settings, mode: result.mode } },
       result.prompt,
-      result.resume ? { resume: result.resume } : {},
+      {
+        ...(result.resume ? { resume: result.resume } : {}),
+        ...(options.skill ? { skill: options.skill } : {}),
+      },
     );
   };
   if (prompt === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     const { startChat } = await import('../ui/start.js');
     await commands.list();
+    await skills.catalog.list();
     let pending: Extract<CommandResult, { kind: 'agent' }> | undefined;
     await startChat({
       conversation,
@@ -93,8 +111,10 @@ export async function runChat(loaded: LoadedConfiguration, prompt?: string): Pro
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
   let output = false;
+  const shownSkills = new Set<string>();
   try {
-    for await (const event of conversation.send(result.prompt, controller.signal)) {
+    for await (const event of conversation.send(result.prompt, controller.signal, result.skills)) {
+      if (conversation.skillSources) printSkills(conversation.skillSources, shownSkills);
       if (event.type === 'text_delta') {
         output = true;
         process.stdout.write(terminalText(event.text));

@@ -6,10 +6,45 @@ import { MockProvider } from '../../src/providers/mock.js';
 import type { LLMProvider } from '../../src/providers/types.js';
 import { AppError } from '../../src/shared/errors.js';
 import { CommandRegistry } from '../../src/core/commands.js';
+import { SkillCatalog } from '../../src/core/skills.js';
+import { createSandbox, removeSandbox } from '../support/sandbox.js';
+import { writeSkill } from '../support/skills.js';
 
 describe('Ink conversation UI', () => {
   afterEach(cleanup);
   const options = { model: 'mock-v1', maxOutputTokens: 4096, timeoutMs: 1000 };
+
+  it('passes explicit skill selection to chat and displays source metadata for the current round', async () => {
+    const box = await createSandbox();
+    try {
+      await writeSkill(box.projectDirectory, 'review', 'Review fixes', 'private skill advice');
+      const catalog = new SkillCatalog({ ...box, allows: () => true });
+      const conversation = new Conversation(new MockProvider({ delayMs: 0, response: 'answer' }), {
+        ...options,
+        skills: (query, signal, names) => catalog.select(query, names, signal),
+      });
+      const commands = new CommandRegistry({
+        model: () => 'mock-v1',
+        setModel: () => {},
+        mode: () => 'plan',
+        setMode: () => {},
+        permissions: () => 'plan',
+      });
+      const view = render(
+        <Chat conversation={conversation} model="mock-v1" provider="mock" commands={commands} />,
+      );
+      await vi.waitFor(() => expect(view.lastFrame()).toContain('输入问题'));
+      view.stdin.write('/skill review 检查中文文件');
+      await vi.waitFor(() => expect(view.lastFrame()).toContain('/skill review 检查中文文件'));
+      view.stdin.write('\r');
+      await vi.waitFor(() => expect(view.lastFrame()).toContain('review [explicit]'));
+      expect(conversation.skillSources?.sources[0]?.path).toBe('project:skills/review/SKILL.md');
+      expect(view.lastFrame()).not.toContain('private skill advice');
+      view.unmount();
+    } finally {
+      await removeSandbox(box.root);
+    }
+  });
 
   it('completes commands, changes model, clears rendered history and hands off resume', async () => {
     const conversation = new Conversation(

@@ -25,6 +25,8 @@ export type ErrorCode =
   | 'MEMORY_IO'
   | 'COMMAND_INVALID'
   | 'COMMAND_IO'
+  | 'SKILL_INVALID'
+  | 'SKILL_LIMIT'
   | 'BUSY';
 
 export class AppError extends Error {

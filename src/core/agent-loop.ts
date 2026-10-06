@@ -13,6 +13,7 @@ import { inlineResult, recoverState } from './session.js';
 import type { SessionStore, SessionState } from './session.js';
 import type { MemoryStore, MemorySelection } from './memory.js';
 import type { MemorySettings } from './memory-schema.js';
+import type { SkillCatalog, SkillSelection } from './skills.js';
 
 export interface AgentOptions {
   model: string;
@@ -28,6 +29,7 @@ export interface AgentOptions {
   session?: SessionStore;
   resume?: SessionState;
   memory?: { store: MemoryStore; settings: MemorySettings };
+  skills?: { catalog: SkillCatalog; explicit?: readonly string[] };
 }
 
 export type AgentEvent =
@@ -58,6 +60,7 @@ export class AgentLoop {
   private messages: LLMMessage[] = [];
   private busy = false;
   private memory?: MemorySelection;
+  private skills?: SkillSelection;
 
   constructor(
     private readonly provider: LLMProvider,
@@ -85,7 +88,10 @@ export class AgentLoop {
     return structuredClone(this.messages);
   }
 
-  async inspectPrompt(signal: AbortSignal = new AbortController().signal): Promise<PromptManifest> {
+  async inspectPrompt(
+    signal: AbortSignal = new AbortController().signal,
+    query = '',
+  ): Promise<PromptManifest> {
     const instructions = new ProjectInstructions(
       this.executor.paths,
       this.options.sensitiveValues,
@@ -97,6 +103,12 @@ export class AgentLoop {
         this.executor,
         '',
         this.options.memory.settings,
+        signal,
+      );
+    if (this.options.skills)
+      this.skills = await this.options.skills.catalog.select(
+        query,
+        this.options.skills.explicit,
         signal,
       );
     return this.compose(instructions).manifest;
@@ -135,6 +147,7 @@ export class AgentLoop {
       instructions.sources,
       instructions.warningHistory,
       this.memory,
+      this.skills,
     );
   }
 
@@ -277,6 +290,12 @@ export class AgentLoop {
           this.options.memory.settings,
           combined,
         );
+      if (this.options.skills)
+        this.skills = await this.options.skills.catalog.select(
+          memoryQuery,
+          this.options.skills.explicit,
+          combined,
+        );
       const initial = this.compose(instructions, promptTools);
       this.messages[0]!.content = initial.text;
       yield { type: 'prompt_info', manifest: initial.manifest };
@@ -289,13 +308,20 @@ export class AgentLoop {
       }
       for (turns = (restored?.turns ?? 0) + 1; turns <= this.options.maxTurns; turns++) {
         this.checkCancelled(combined);
-        if (this.options.memory && turns > (restored?.turns ?? 0) + 1) {
-          this.memory = await this.options.memory.store.select(
-            this.executor,
-            memoryQuery,
-            this.options.memory.settings,
-            combined,
-          );
+        if ((this.options.memory || this.options.skills) && turns > (restored?.turns ?? 0) + 1) {
+          if (this.options.memory)
+            this.memory = await this.options.memory.store.select(
+              this.executor,
+              memoryQuery,
+              this.options.memory.settings,
+              combined,
+            );
+          if (this.options.skills)
+            this.skills = await this.options.skills.catalog.select(
+              memoryQuery,
+              this.options.skills.explicit,
+              combined,
+            );
           const updated = this.compose(instructions, promptTools);
           if (updated.text !== this.messages[0]!.content) {
             this.messages[0]!.content = updated.text;

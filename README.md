@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M10 Slash Command 已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆和内置/自定义命令。M10 的边界见 [规格](docs/modules/M10/spec.md) 与[验收记录](docs/modules/M10/checklist.md)，下一模块为M11 Skill 系统。
+当前阶段：**M11 Skill 系统实现与本地完整检查通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆、命令和按需技能/资源读取。M11 的边界见 [规格](docs/modules/M11/spec.md) 与[验收记录](docs/modules/M11/checklist.md)，下一模块为M12 Hook 系统。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M10/spec.md)、[任务](docs/modules/M10/tasks.md)与[验收记录](docs/modules/M10/checklist.md)可直接查看；M01–M09 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M11/spec.md)、[任务](docs/modules/M11/tasks.md)与[验收记录](docs/modules/M11/checklist.md)可直接查看；M01–M10 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -69,6 +69,32 @@ argument-hint: '<path> [options]'
 ```
 
 调用 `/review "中文 文件.ts" 检查边界`；内置优先于项目、项目优先于用户。正文按需读取，`/help --refresh` 更新名称和说明索引。位置参数和原始参数串只替换文字；模板不会执行 shell 或切换权限，`run` 的后续工具动作仍需原权限策略。[完整限制与行为](docs/modules/M10/spec.md)。
+
+## Skill 系统
+
+项目技能放在 `.mewcode/skills/code-review/SKILL.md`，用户技能放在用户目录的 `skills/code-review/SKILL.md`；项目覆盖同名用户技能。正文示例：
+
+```markdown
+---
+name: code-review
+description: 审查变更，定位错误并验证边界测试。
+---
+
+定位相关文件，检查失败路径；需要时使用 SkillRead 读取 references/checklist.md。
+```
+
+```powershell
+npm run dev -- skills list
+npm run dev -- skills show code-review --content
+npm run dev -- skills match --query "审查变更并检查边界测试"
+npm run dev -- prompt --json --skill code-review
+npm run agent -- "审查本次变更" --skill code-review
+npm run chat -- "/skill code-review 解释边界测试方法"
+```
+
+不指定技能时按名称/描述做本地词项匹配，最多选2个；显式名单最多4个。启动只保存元数据，选中后才读取正文；资源不自动读取。`/skills refresh` 更新索引，`/skill <name> <task>` 为本轮明确选择。每轮记录名称、来源与选择原因，提示元数据不输出正文。
+
+Agent的 `SkillRead` 只能读取本轮选中技能目录内的有界文本资源；附带脚本需要另走完整Bash命令审批，Plan禁止执行。chat只提供建议，不读取资源或执行脚本。技能不能提升权限或授权MCP，Skill提供方法和本地资源，MCP提供需审批的外部服务能力。[格式、限额、匹配和恢复边界](docs/modules/M11/spec.md)。
 
 ## 模型执行任务
 

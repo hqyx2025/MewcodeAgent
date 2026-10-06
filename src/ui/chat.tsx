@@ -60,7 +60,7 @@ export function Chat({ conversation, model, provider, commands, onAgent }: ChatP
     [],
   );
 
-  const send = async (prompt: string) => {
+  const send = async (prompt: string, skills: readonly string[] = []) => {
     running.current = true;
     const signalController = new AbortController();
     controller.current = signalController;
@@ -73,7 +73,19 @@ export function Chat({ conversation, model, provider, commands, onAgent }: ChatP
       if (mounted.current) setActive({ ...turn });
     };
     try {
-      for await (const event of conversation.send(prompt, signalController.signal)) {
+      for await (const event of conversation.send(prompt, signalController.signal, skills)) {
+        const sources = conversation.skillSources;
+        if (mounted.current && sources)
+          setNotice(
+            terminalText(
+              [
+                ...sources.sources.map(
+                  (source) => `技能：${source.name} [${source.reason}] ${source.path}`,
+                ),
+                ...sources.warnings.map((warning) => `技能警告：${warning.source} ${warning.code}`),
+              ].join('\n'),
+            ),
+          );
         if (event.type === 'text_delta') {
           turn.answer += event.text;
           if (flushTimer.current === undefined) flushTimer.current = setTimeout(flush, 30);
@@ -127,7 +139,7 @@ export function Chat({ conversation, model, provider, commands, onAgent }: ChatP
         if (completed.length >= 200)
           throw new AppError('CONTEXT_LIMIT', '展示已达上限，请先使用 /clear。');
         setNotice('');
-        await send(result.prompt);
+        await send(result.prompt, result.skills);
       }
     } catch (error) {
       if (mounted.current)

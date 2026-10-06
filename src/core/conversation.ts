@@ -1,8 +1,10 @@
 import { AppError } from '../shared/errors.js';
 import type { LLMEvent, LLMMessage, LLMProvider } from '../providers/types.js';
 import type { MemorySelection } from './memory.js';
-import { memoryPrompt } from './prompt.js';
+import { memoryPrompt, skillsPrompt } from './prompt.js';
 import { compactHistory, defaultContext } from './context.js';
+import { skillManifest } from './skills.js';
+import type { SkillSelection, SkillManifest } from './skills.js';
 
 export interface ConversationOptions {
   model: string;
@@ -12,6 +14,11 @@ export interface ConversationOptions {
   maxContextCharacters?: number;
   maxResponseCharacters?: number;
   memory?: (query: string, signal: AbortSignal) => Promise<MemorySelection>;
+  skills?: (
+    query: string,
+    signal: AbortSignal,
+    explicit: readonly string[],
+  ) => Promise<SkillSelection>;
 }
 
 const SYSTEM_MESSAGE: LLMMessage = {
@@ -23,6 +30,7 @@ const SYSTEM_MESSAGE: LLMMessage = {
 export class Conversation {
   private messages: LLMMessage[] = [];
   private busy = false;
+  private selectedSkills: SkillManifest | undefined;
 
   constructor(
     private readonly provider: LLMProvider,
@@ -37,6 +45,10 @@ export class Conversation {
     return this.options.model;
   }
 
+  get skillSources(): SkillManifest | undefined {
+    return this.selectedSkills ? structuredClone(this.selectedSkills) : undefined;
+  }
+
   private idle(): void {
     if (this.busy) throw new AppError('BUSY', '当前回答尚未结束，不能更改会话。');
   }
@@ -44,6 +56,7 @@ export class Conversation {
   clear(): void {
     this.idle();
     this.messages = [];
+    this.selectedSkills = undefined;
   }
 
   setModel(model: string): void {
@@ -65,12 +78,13 @@ export class Conversation {
   async *send(
     prompt: string,
     signal: AbortSignal = new AbortController().signal,
+    explicitSkills: readonly string[] = [],
   ): AsyncIterable<LLMEvent> {
     if (this.busy) throw new AppError('BUSY', '当前回答尚未结束。');
     if (!prompt.trim()) throw new AppError('INVALID_PROMPT', '请输入非空问题。');
     if (signal.aborted) throw new AppError('CANCELLED', '请求已取消。');
     const user: LLMMessage = { role: 'user', content: prompt };
-    const requestMessages = [SYSTEM_MESSAGE, ...this.messages, user];
+    const requestMessages = [{ ...SYSTEM_MESSAGE }, ...this.messages, user];
     if (
       this.messages.length + 2 > (this.options.maxHistoryMessages ?? 40) ||
       requestMessages.reduce((size, message) => size + message.content.length, 0) >
@@ -82,6 +96,7 @@ export class Conversation {
       );
     }
     this.busy = true;
+    this.selectedSkills = undefined;
     const deadline = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -106,6 +121,18 @@ export class Conversation {
         )
           throw new AppError('CONTEXT_LIMIT', '记忆与会话超过上下文上限，本轮未发送模型请求。');
       }
+      if (this.options.skills) {
+        const selected = await this.options.skills(prompt, combined, explicitSkills);
+        this.selectedSkills = skillManifest(selected);
+        if (selected.entries.length)
+          requestMessages[0]!.content += `\n\n## skills\n${skillsPrompt(selected, false)}`;
+        if (
+          requestMessages.reduce((size, message) => size + message.content.length, 0) >
+          (this.options.maxContextCharacters ?? 100_000)
+        )
+          throw new AppError('CONTEXT_LIMIT', '技能与会话超过上下文上限，本轮未发送模型请求。');
+      } else if (explicitSkills.length)
+        throw new AppError('SKILL_INVALID', '当前会话未配置技能来源。');
       if (combined.aborted) throw new AppError('CANCELLED', '请求已取消，未调用模型。');
       for await (const event of this.provider.stream(
         {

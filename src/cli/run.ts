@@ -15,8 +15,9 @@ import { SessionStore } from '../core/session.js';
 import type { SessionState } from '../core/session.js';
 import { relative, join, sep } from 'node:path';
 import { referencedValues } from '../mcp/config.js';
-import { memoryRuntime, printMemoryWarnings } from './memory-runtime.js';
+import { memoryRuntime, memoryProtection, printMemoryWarnings } from './memory-runtime.js';
 import { commandRuntime } from './commands.js';
+import { skillRuntime, printSkills } from './skills.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -27,6 +28,7 @@ export interface RunCLIOptions {
   mcp?: string[];
   saveSession?: boolean;
   resume?: string;
+  skill?: string[];
 }
 
 function sensitiveValues(loaded: LoadedConfiguration): string[] {
@@ -38,6 +40,7 @@ function sensitiveValues(loaded: LoadedConfiguration): string[] {
 }
 
 function printPrompt(manifest: PromptManifest, shownWarnings: Set<string>): void {
+  if (manifest.skills) printSkills(manifest.skills, shownWarnings);
   if (manifest.memory) {
     if (manifest.memory.selected)
       process.stderr.write(
@@ -61,23 +64,31 @@ function printPrompt(manifest: PromptManifest, shownWarnings: Set<string>): void
   }
 }
 
-export async function inspectPrompt(loaded: LoadedConfiguration, json: boolean): Promise<void> {
+export async function inspectPrompt(
+  loaded: LoadedConfiguration,
+  json: boolean,
+  options: { skill?: string[]; task?: string } = {},
+): Promise<void> {
   const registry = createBuiltinRegistry();
   const memory = await memoryRuntime(loaded, registry);
+  const skills = skillRuntime(loaded, registry);
   const executor = await ToolExecutor.create(registry, {
     root: loaded.cwd,
     mode: loaded.settings.mode,
     rules: [...loaded.permissionRules, ...memory.rules],
   });
+  skills.bind(executor);
   const manifest = await new AgentLoop(new MockProvider({ delayMs: 0 }), executor, {
     model: loaded.settings.provider.model,
     mode: loaded.settings.mode,
     ...loaded.settings.limits,
     sensitiveValues: sensitiveValues(loaded),
     memory: { store: memory.store, settings: loaded.settings.memory },
-  }).inspectPrompt(AbortSignal.timeout(loaded.settings.limits.timeoutMs));
+    skills: { catalog: skills.catalog, ...(options.skill ? { explicit: options.skill } : {}) },
+  }).inspectPrompt(AbortSignal.timeout(loaded.settings.limits.timeoutMs), options.task);
   if (json) process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   else {
+    if (manifest.skills) printSkills(manifest.skills, new Set());
     process.stdout.write(
       terminalText(
         `系统提示 ${manifest.version}：${manifest.characters} 字符，估算 ${manifest.estimatedTokens} token。\n提示段：${manifest.sections.map((section) => section.id).join(' → ')}\n模式：${manifest.environment.mode}；Shell：${manifest.environment.shell.kind}\n项目指令：${manifest.sources.map((source) => `${source.path} [scope=${source.scope}]`).join('，') || '无'}\n${manifest.warnings.map((warning) => `警告 ${warning.code}：${warning.path}；${warning.message}`).join('\n')}\n`,
@@ -141,12 +152,14 @@ export async function runAgent(
   // Expand only the original user input. Template output is never reparsed as a local command.
   if (task.trim().startsWith('/')) {
     const registry = createBuiltinRegistry();
+    const skills = skillRuntime(loaded, registry);
     const executor = await ToolExecutor.create(registry, {
       root: loaded.cwd,
       mode: loaded.settings.mode,
-      rules: loaded.permissionRules,
+      rules: [...loaded.permissionRules, ...(await memoryProtection(loaded))],
     });
-    const result = await commandRuntime(loaded, executor).execute(task);
+    skills.bind(executor);
+    const result = await commandRuntime(loaded, executor, undefined, skills.catalog).execute(task);
     if (result.kind === 'local') {
       process.stdout.write(
         options.json ? `${JSON.stringify(result)}\n` : `${terminalText(result.text)}\n`,
@@ -154,6 +167,8 @@ export async function runAgent(
       return;
     }
     task = result.prompt;
+    if (result.kind === 'task' && result.skills)
+      options = { ...options, skill: [...(options.skill ?? []), ...result.skills] };
     if (result.kind === 'agent') {
       if (options.resume && result.resume && options.resume !== result.resume)
         throw new AppError('COMMAND_INVALID', '恢复命令与 --resume 指定的会话不一致。');
@@ -181,6 +196,7 @@ export async function runAgentTask(
   );
   const registry = createBuiltinRegistry();
   const memory = await memoryRuntime(loaded, registry);
+  const skills = skillRuntime(loaded, registry);
   const mcp = new MCPManager(registry, selected, process.env, sensitiveValues(loaded));
   const provider = await createProvider(loaded.settings);
   let session: SessionStore | undefined;
@@ -260,6 +276,7 @@ export async function runAgentTask(
       rules: [...runtime.rules, ...memory.rules],
       audit: runtime.audit,
     });
+    skills.bind(executor);
     for (const id of Object.keys(selected)) {
       const result = await mcp.connect(id, executor, signal);
       if (!result.ok)
@@ -275,6 +292,7 @@ export async function runAgentTask(
       sensitiveValues: sensitiveValues(loaded),
       context: loaded.settings.context,
       memory: { store: memory.store, settings: loaded.settings.memory },
+      skills: { catalog: skills.catalog, ...(options.skill ? { explicit: options.skill } : {}) },
       ...(session ? { session } : {}),
       ...(restored ? { resume: restored } : {}),
     });

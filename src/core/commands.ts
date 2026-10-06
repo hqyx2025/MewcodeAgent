@@ -11,7 +11,7 @@ export interface CommandInfo {
 }
 export type CommandResult =
   | { kind: 'local'; text: string; clear?: true }
-  | { kind: 'task'; prompt: string }
+  | { kind: 'task'; prompt: string; skills?: readonly string[] }
   | { kind: 'agent'; prompt: string; mode: ToolMode; resume?: string };
 export interface CommandHost {
   model(): string;
@@ -21,6 +21,7 @@ export interface CommandHost {
   permissions(): string;
   clear?(): void;
   compact?(): string | Promise<string>;
+  skills?(refresh: boolean): Promise<string>;
 }
 export interface CommandTemplates {
   list(refresh?: boolean): Promise<CommandInfo[]>;
@@ -28,6 +29,20 @@ export interface CommandTemplates {
 }
 
 export const builtinCommands: readonly CommandInfo[] = [
+  {
+    name: 'skills',
+    description: '查看技能元数据；refresh 重建技能索引',
+    arguments: '[refresh]',
+    kind: 'local',
+    source: 'builtin',
+  },
+  {
+    name: 'skill',
+    description: '为本轮任务明确指定一个技能',
+    arguments: '<name> <task>',
+    kind: 'task',
+    source: 'builtin',
+  },
   {
     name: 'help',
     description: '查看帮助；--refresh 重建模板索引',
@@ -158,6 +173,18 @@ export class CommandRegistry {
       const { name, args, raw } = command;
       const local = (text: string): CommandResult => ({ kind: 'local', text });
       switch (name) {
+        case 'skills':
+          if (!this.host.skills || args.length > 1 || (args.length && args[0] !== 'refresh'))
+            invalid();
+          return local(await this.host.skills(args[0] === 'refresh'));
+        case 'skill':
+          if (
+            args.length < 2 ||
+            !/^[a-z][a-z0-9-]{0,47}$/.test(args[0]!) ||
+            !args.slice(1).join(' ').trim()
+          )
+            invalid();
+          return { kind: 'task', prompt: args.slice(1).join(' '), skills: [args[0]!] };
         case 'help': {
           if (args.length > 1) invalid();
           const entries = await this.list(args[0] === '--refresh');

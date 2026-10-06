@@ -98,6 +98,24 @@ registerHooks({
   await mkdir(join(installation, '.mewcode', 'commands'), { recursive: true });
   await writeFile(join(installation, '.mewcode', 'commands', 'review.md'), 'Review $1; $ARGUMENTS');
   assert((await run(['chat', '/review "中文 文件.ts"'])).stdout.includes('Review 中文 文件.ts'));
+  const skillDirectory = join(installation, '.mewcode', 'skills', 'review');
+  await mkdir(skillDirectory, { recursive: true });
+  await writeFile(
+    join(skillDirectory, 'SKILL.md'),
+    '---\nname: review\ndescription: Review fixes and regression\n---\ninstalled-private-skill-body',
+  );
+  await writeFile(join(skillDirectory, '中文.txt'), 'installed skill evidence 🐈');
+  const skillList = (await run(['skills'])).stdout;
+  assert(JSON.parse(skillList).entries.some((entry: { name: string }) => entry.name === 'review'));
+  assert(!skillList.includes('installed-private-skill-body'));
+  const skillPrompt = (await run(['prompt', '--json', '--skill', 'review'])).stdout;
+  assert.equal(JSON.parse(skillPrompt).skills.sources[0].reason, 'explicit');
+  assert(!skillPrompt.includes('installed-private-skill-body'));
+  assert((await run(['chat', '/skill review 检查中文文件'])).stderr.includes('[explicit]'));
+  assert.equal(
+    JSON.parse((await run(['skills', 'resource', 'review', '中文.txt'])).stdout).content,
+    'installed skill evidence 🐈',
+  );
   const agentEvents = (await run(['--mode', 'plan', 'run', '查看目录', '--json'])).stdout
     .trim()
     .split('\n')
@@ -298,6 +316,8 @@ registerHooks({
           'passed (confirmed user preference, explicit show, private prompt metadata, Plan denial, delete and reload)',
         commands:
           'passed (builtin help without key, command listing, Chinese Markdown template expansion)',
+        skills:
+          'passed (metadata without body, explicit selection, private prompt metadata, bounded Unicode resource)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

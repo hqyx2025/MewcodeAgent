@@ -1,10 +1,10 @@
-import { constants } from 'node:fs';
-import { lstat, open, opendir, realpath } from 'node:fs/promises';
-import { join, parse, relative, resolve, sep } from 'node:path';
+import { opendir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { JSON_SCHEMA, load } from 'js-yaml';
 import { AppError } from '../shared/errors.js';
 import { redactInstruction } from '../shared/redact.js';
 import type { CommandInfo, CommandTemplates } from './commands.js';
+import { safeDirectory, readBoundedText } from '../shared/bounded-files.js';
 
 const MAX_FILE = 65_536;
 const MAX_HEADER = 4096;
@@ -13,42 +13,6 @@ interface Entry extends CommandInfo {
 }
 function fail(): never {
   throw new AppError('COMMAND_IO', '命令模板路径、元数据、编码或体积无效；未执行模板中的操作。');
-}
-
-async function safeDirectory(path: string): Promise<void> {
-  const target = resolve(path);
-  let current = parse(target).root;
-  for (const part of relative(current, target).split(sep).filter(Boolean)) {
-    current = join(current, part);
-    const info = await lstat(current);
-    if (!info.isDirectory() || info.isSymbolicLink()) fail();
-  }
-  await realpath(target);
-}
-
-async function readBounded(path: string, headerOnly: boolean): Promise<string> {
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > MAX_FILE) fail();
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const before = await handle.stat();
-    if (before.ino !== info.ino || before.dev !== info.dev || before.size !== info.size) fail();
-    const buffer = Buffer.alloc(headerOnly ? Math.min(MAX_HEADER, before.size) : before.size);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
-      if (!bytesRead) fail();
-      offset += bytesRead;
-    }
-    const after = await handle.stat();
-    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) fail();
-    // Streaming decoder permits a partial final UTF-8 character in the header prefix only.
-    return new TextDecoder('utf-8', { fatal: true }).decode(buffer, {
-      stream: headerOnly && buffer.length < before.size,
-    });
-  } finally {
-    await handle.close();
-  }
 }
 
 function document(text: string): { description: string; arguments: string; body: string } {
@@ -97,14 +61,15 @@ export class MarkdownCommands implements CommandTemplates {
       const entries = new Map<string, Entry>();
       try {
         for (const source of ['user', 'project'] as const) {
-          const directory = join(this.options[`${source}Directory`], 'commands');
+          let directory = join(this.options[`${source}Directory`], 'commands');
           if (!this.options.allows(directory)) continue;
           try {
-            await safeDirectory(directory);
+            directory = await safeDirectory(directory);
           } catch (error) {
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
             throw error;
           }
+          if (!this.options.allows(directory)) continue;
           const stream = await opendir(directory);
           let count = 0;
           const names: string[] = [];
@@ -115,7 +80,7 @@ export class MarkdownCommands implements CommandTemplates {
           for (const file of names.sort()) {
             const path = join(directory, file);
             if (!this.options.allows(path)) continue;
-            const header = await readBounded(path, true);
+            const header = await readBoundedText(path, MAX_FILE, MAX_HEADER);
             if (redactInstruction(header, this.options.secrets) !== header) fail();
             const meta = document(header);
             const name = file.slice(0, -3);
@@ -144,7 +109,7 @@ export class MarkdownCommands implements CommandTemplates {
     try {
       await safeDirectory(resolve(entry.path, '..'));
       if (!this.options.allows(entry.path)) fail();
-      const text = await readBounded(entry.path, false);
+      const text = await readBoundedText(entry.path, MAX_FILE);
       if (redactInstruction(text, this.options.secrets) !== text) fail();
       const body = document(text).body;
       // One replacement pass: inserted arguments cannot create more placeholders or commands.

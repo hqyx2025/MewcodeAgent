@@ -76,7 +76,12 @@ describe('Agent CLI', () => {
       warnings: { code: string }[];
     };
     expect(metadata.version).toBe('m05-v1');
-    expect(metadata.environment.tools.map((t) => t.name)).toEqual(['ReadFile', 'Glob', 'Grep']);
+    expect(metadata.environment.tools.map((t) => t.name)).toEqual([
+      'ReadFile',
+      'Glob',
+      'Grep',
+      'SkillRead',
+    ]);
     expect(metadata.sources).toMatchObject([{ path: 'AGENTS.md', redacted: true }]);
     expect(metadata.warnings).toMatchObject([{ code: 'REDACTED' }]);
     expect(result.stdout + result.stderr).not.toContain('private-guidance-marker');

@@ -112,13 +112,35 @@ export function createProgram(): Command {
     .command('chat')
     .description('流式对话；TTY下无参数启动多轮界面，带参数或管道输入时输出纯文本')
     .argument('[prompt]', '单次问题；省略时启动交互或读取标准输入')
+    .option('--skill <name...>', '明确指定本轮/本进程技能；最多4个，正文按需加载')
     .action(async (prompt: string | undefined, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
       const { runChat } = await import('./chat.js');
-      await runChat(loaded, prompt);
+      await runChat(loaded, prompt, command.opts());
     });
 
   program.action(() => program.outputHelp());
+  program
+    .command('skills')
+    .description('查看技能元数据、匹配、显式正文或受限资源，不调用模型')
+    .argument('[action]', 'list/show/match/resource', 'list')
+    .argument('[name]', '技能名称')
+    .argument('[resource]', 'resource 的技能内相对文件路径')
+    .option('--content', 'show 明确输出所选技能正文')
+    .option('--query <text>', 'match 的任务文本；只输出匹配来源元数据')
+    .action(
+      async (
+        action: string,
+        name: string | undefined,
+        resource: string | undefined,
+        _options: unknown,
+        command: Command,
+      ) => {
+        const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+        const { manageSkills } = await import('./skills.js');
+        await manageSkills(loaded, action, name, resource, command.opts());
+      },
+    );
   program
     .command('commands')
     .description('查看内置及用户/项目 Markdown 命令的帮助，不调用模型')
@@ -144,10 +166,12 @@ export function createProgram(): Command {
     .command('prompt')
     .description('查看系统提示分段、环境与根指令来源元数据，不调用模型或输出正文')
     .option('--json', '输出JSON元数据')
+    .option('--skill <name...>', '检查显式技能的来源元数据，不输出正文')
+    .option('--task <text>', '按任务描述匹配技能，不调用模型')
     .action(async (_options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
       const { inspectPrompt } = await import('./run.js');
-      await inspectPrompt(loaded, command.opts<{ json?: boolean }>().json ?? false);
+      await inspectPrompt(loaded, command.opts<{ json?: boolean }>().json ?? false, command.opts());
     });
   program
     .command('run')
@@ -160,6 +184,7 @@ export function createProgram(): Command {
     .option('--mcp <id...>', '显式连接配置中的 MCP 服务（启动与调用均需审批）')
     .option('--save-session', '保存可恢复会话及长工具结果（凭据脱敏）')
     .option('--resume <id>', '恢复绑定当前项目的会话，不重放旧动作')
+    .option('--skill <name...>', '明确指定本次任务技能；最多4个')
     .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（父目录须存在）')
     .action(async (task: string | undefined, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
