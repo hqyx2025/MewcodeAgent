@@ -1,6 +1,6 @@
 # M13 验收记录
 
-状态：本地完整检查、独立安装包和延迟基准通过；Windows/Linux CI待推送后核对。
+状态：本地完整检查、独立安装包、延迟基准与Windows/Linux CI通过。
 
 ## 行为与边界
 
@@ -23,7 +23,7 @@
 - [x] `npm run test:package`：仅生产依赖独立安装、Unicode/空格目录，实际运行delegate双任务、run Task委派与独立agentId；既有工具、MCP、会话、记忆、命令、Skill与Hook回归通过。
 - [x] help/version仍不加载配置/模型/UI重依赖；help七次中位数38.75ms，编译JS合计370450 bytes，本地验证包298744 bytes（包含当时README，文档更新会改变包大小）。
 - [x] `npm run bench:subagents`，包含父委派和汇总请求。
-- [ ] Windows/Linux CI核对。
+- [x] [Windows/Linux CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37450854715)通过，验证代码提交 `f04597075584f277278abfe4746398a520515853`。两平台Node v24.21.0、npm 11.19.0；Windows为44文件、390通过/1平台跳过，Ubuntu为44文件、388通过/3平台跳过，共391；两平台check与test:package均成功。后续提交仅更新验收文档，不改变已验证代码。
 
 ## 测量与已知边界
 

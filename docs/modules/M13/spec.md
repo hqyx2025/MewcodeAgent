@@ -1,6 +1,6 @@
 # M13 SubAgent 规格
 
-状态：本地完整检查、独立安装包与延迟基准通过；Windows/Linux CI待推送后核对。
+状态：本地完整检查、独立安装包、延迟基准与Windows/Linux CI通过。
 
 ## 目标与入口
 

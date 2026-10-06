@@ -11,6 +11,6 @@
 - [x] 行为、错误、取消、预算、权限、恢复和CLI测试。
 - [x] 完整check与独立生产安装包验收。
 - [x] 串行/并发基准，记录父汇总请求、token与内存测量条件。
-- [ ] 同步README、路线与checklist，提交推送并核对Windows/Linux CI。
+- [x] 同步README、路线与checklist，提交推送并核对Windows/Linux CI。
 
 后续模块：M14 Worktree，仅在明确隔离与归属后开放写入子任务。
