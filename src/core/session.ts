@@ -42,6 +42,11 @@ const messageSchema = z
     ...(value.continuation === undefined ? {} : { continuation: value.continuation }),
   }));
 export const sessionStateSchema = z.strictObject({
+  pendingSubagentTokens: z.number().int().min(0).max(200_000).optional(),
+  subagentIds: z
+    .array(z.string().regex(/^[a-z][a-z0-9-]{0,23}$/))
+    .max(32)
+    .optional(),
   mode: z.enum(['plan', 'default', 'accept-edits']),
   messages: z.array(messageSchema).max(4096),
   seenIds: z.array(z.string().regex(/^[\w.-]{1,128}$/)).max(10_000),
@@ -583,6 +588,7 @@ export function inlineResult(
   const data =
     result.data && typeof result.data === 'object' ? (result.data as Record<string, unknown>) : {};
   const inline: ToolResult & { spill?: SpillReference } = {
+    ...(result.agentId ? { agentId: result.agentId } : {}),
     callId: result.callId,
     name: result.name,
     ok: result.ok,
@@ -618,6 +624,13 @@ export function inlineResult(
 
 export function recoverState(state: SessionState): SessionState {
   const next = structuredClone(state);
+  if (next.pendingSubagentTokens) {
+    next.totalTokens += next.pendingSubagentTokens;
+    if (!Number.isSafeInteger(next.totalTokens))
+      throw new AppError('SESSION_INVALID', '恢复预算无效。');
+    next.estimated = true;
+  }
+  delete next.pendingSubagentTokens;
   const pending = new Set(validateHistory(next.messages, true));
   for (const message of next.messages)
     for (const call of message.toolCalls ?? [])

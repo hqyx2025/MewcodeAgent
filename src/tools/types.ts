@@ -18,6 +18,7 @@ export interface ToolPayload {
 }
 
 export interface ToolResult extends ToolPayload {
+  agentId?: string;
   callId: string;
   name: string;
   ok: boolean;
@@ -25,6 +26,7 @@ export interface ToolResult extends ToolPayload {
 }
 
 export interface ApprovalRequest {
+  readonly agentId?: string;
   readonly callId: string;
   readonly name: string;
   readonly effect: ToolEffect;
@@ -41,6 +43,7 @@ export interface ApprovalRequest {
 export type ApprovalAnswer = boolean | { allow: boolean; scope: 'once' | 'session' };
 
 export interface ToolContext {
+  agentId?: string;
   paths: ProjectPaths;
   signal: AbortSignal;
   shell: { kind: 'powershell' | 'bash'; executable: string };

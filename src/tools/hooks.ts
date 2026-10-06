@@ -187,6 +187,7 @@ export class HookRuntime {
         if (invocationId) this.pending.delete(invocationId);
       }
       const record: HookAudit = {
+        ...(event.agentId ? { agentId: event.agentId } : {}),
         version: 1,
         sequence: this.records.length + 1,
         timestamp: new Date().toISOString(),

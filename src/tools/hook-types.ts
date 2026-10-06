@@ -2,6 +2,7 @@ import type { HookDecision, HookEventName } from './hook-schema.js';
 import type { ToolCall, ToolMode, ToolResult } from './types.js';
 
 export interface HookEvent {
+  agentId?: string;
   version: 1;
   event: HookEventName;
   eventId: string;
@@ -26,6 +27,7 @@ export type HookHandler = (
 ) => Promise<HookDecision>;
 
 export interface HookAudit {
+  agentId?: string;
   version: 1;
   sequence: number;
   timestamp: string;

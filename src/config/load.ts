@@ -175,6 +175,24 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
       settings = mergeSettings(settings, {
         ...patch,
         mode: projectMode,
+        ...(kind === 'project' && patch.subagents
+          ? {
+              subagents: {
+                enabled: settings.subagents.enabled && (patch.subagents.enabled ?? true),
+                ...Object.fromEntries(
+                  Object.entries(patch.subagents)
+                    .filter(([key]) => key !== 'enabled')
+                    .map(([key, value]) => [
+                      key,
+                      Math.min(
+                        value as number,
+                        settings.subagents[key as Exclude<keyof Settings['subagents'], 'enabled'>],
+                      ),
+                    ]),
+                ),
+              },
+            }
+          : {}),
         ...(kind === 'project' && patch.memory
           ? {
               memory: {

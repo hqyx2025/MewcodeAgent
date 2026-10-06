@@ -4,6 +4,7 @@ import { mcpSettingsSchema } from '../mcp/config.js';
 import { contextSchema, defaultContext } from '../core/context.js';
 import { memorySettingsSchema, defaultMemory } from '../core/memory-schema.js';
 import { hookSettingsSchema } from '../tools/hook-schema.js';
+import { subagentSettingsSchema, defaultSubagents } from '../core/subagent-schema.js';
 
 export const providerKinds = ['mock', 'openai-compatible', 'anthropic'] as const;
 export const agentModes = ['plan', 'default', 'accept-edits'] as const;
@@ -54,6 +55,7 @@ const storageSchema = z.strictObject({
 const permissionsSchema = z.strictObject({ rules: z.array(permissionRuleSchema).max(400) });
 
 export const configPatchSchema = z.strictObject({
+  subagents: subagentSettingsSchema.partial().optional(),
   hooks: hookSettingsSchema.optional(),
   memory: memorySettingsSchema.partial().optional(),
   context: contextSchema.partial().optional(),
@@ -67,6 +69,7 @@ export const configPatchSchema = z.strictObject({
 
 export const configSchema = z
   .strictObject({
+    subagents: subagentSettingsSchema.default(defaultSubagents),
     hooks: hookSettingsSchema.default([]),
     memory: memorySettingsSchema.default(defaultMemory),
     context: contextSchema.default(defaultContext),
@@ -78,6 +81,12 @@ export const configSchema = z
     permissions: permissionsSchema,
   })
   .superRefine((value, context) => {
+    if (value.subagents.enabled && value.context.toolResultBytes < 2048)
+      context.addIssue({
+        code: 'custom',
+        path: ['context', 'toolResultBytes'],
+        message: '子任务汇总需要至少2048 bytes工具结果预算',
+      });
     if (value.limits.maxOutputTokens >= value.context.windowTokens)
       context.addIssue({
         code: 'custom',
@@ -97,6 +106,7 @@ export type Settings = z.infer<typeof configSchema>;
 export type ConfigPatch = z.infer<typeof configPatchSchema>;
 
 export const defaultSettings: Settings = {
+  subagents: defaultSubagents,
   hooks: [],
   memory: defaultMemory,
   context: defaultContext,
@@ -110,6 +120,7 @@ export const defaultSettings: Settings = {
 
 export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
   return {
+    subagents: mergeDefined(current.subagents, patch.subagents),
     hooks: [...current.hooks, ...(patch.hooks ?? [])],
     memory: mergeDefined(current.memory, patch.memory),
     context: mergeDefined(current.context, patch.context),

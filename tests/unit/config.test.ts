@@ -18,6 +18,41 @@ describe('layered configuration', () => {
   const load = (extra: Parameters<typeof loadConfiguration>[0] = {}) =>
     loadConfiguration({ cwd: sandbox.cwd, userHome: sandbox.home, env: {}, ...extra });
 
+  it('allows only trusted opt-in and lets project subagent limits tighten user ceilings', async () => {
+    await writeFile(
+      join(sandbox.projectDirectory, 'config.yaml'),
+      'subagents:\n  enabled: true\n  concurrency: 4\n',
+    );
+    expect((await load()).settings.subagents).toMatchObject({ enabled: false, concurrency: 2 });
+    await writeFile(
+      join(sandbox.userDirectory, 'config.yaml'),
+      'subagents:\n  enabled: true\n  concurrency: 3\n  maxTasks: 12\n',
+    );
+    await writeFile(
+      join(sandbox.projectDirectory, 'config.yaml'),
+      'subagents:\n  concurrency: 4\n  maxTasks: 5\n',
+    );
+    expect((await load()).settings.subagents).toMatchObject({
+      enabled: true,
+      concurrency: 3,
+      maxTasks: 5,
+    });
+    await writeFile(
+      join(sandbox.projectDirectory, 'config.yaml'),
+      'subagents:\n  enabled: false\n',
+    );
+    expect((await load()).settings.subagents.enabled).toBe(false);
+    expect(
+      (await load({ overrides: { subagents: { enabled: true } } })).settings.subagents.enabled,
+    ).toBe(true);
+    await expect(
+      load({ overrides: { subagents: { enabled: true }, context: { toolResultBytes: 1024 } } }),
+    ).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
+    await expect(load({ overrides: { subagents: { concurrency: 5 } } })).rejects.toMatchObject({
+      code: 'CONFIG_INVALID',
+    });
+  });
+
   it('works without files or credentials in a Unicode path', async () => {
     const loaded = await load();
     expect(loaded.settings.provider).toEqual({ kind: 'mock', model: 'mock-v1' });

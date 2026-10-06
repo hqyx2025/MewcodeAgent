@@ -19,6 +19,9 @@ import { memoryRuntime, memoryProtection, printMemoryWarnings } from './memory-r
 import { commandRuntime } from './commands.js';
 import { skillRuntime, printSkills } from './skills.js';
 import { hookRuntime } from './hooks.js';
+import { SubagentPool } from '../core/subagents.js';
+import { TokenBudget } from '../core/token-budget.js';
+import { printSubagentProgress } from './subagent-progress.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -73,6 +76,17 @@ export async function inspectPrompt(
   const registry = createBuiltinRegistry();
   const memory = await memoryRuntime(loaded, registry);
   const skills = skillRuntime(loaded, registry);
+  if (loaded.settings.subagents.enabled)
+    new SubagentPool(registry, {
+      settings: loaded.settings.subagents,
+      budget: new TokenBudget(200_000),
+      provider: () => new MockProvider({ delayMs: 0 }),
+      agent: {
+        model: loaded.settings.provider.model,
+        ...loaded.settings.limits,
+        context: loaded.settings.context,
+      },
+    });
   const executor = await ToolExecutor.create(registry, {
     root: loaded.cwd,
     mode: loaded.settings.mode,
@@ -280,7 +294,41 @@ export async function runAgentTask(
       audit: runtime.audit,
     });
     skills.bind(executor);
+    const accounting = loaded.settings.subagents.enabled
+      ? new TokenBudget(
+          maxTotalTokens,
+          (restored?.totalTokens ?? 0) + (restored?.pendingSubagentTokens ?? 0),
+          (restored?.estimated ?? false) || Boolean(restored?.pendingSubagentTokens),
+        )
+      : undefined;
+    const pool = accounting
+      ? new SubagentPool(registry, {
+          settings: loaded.settings.subagents,
+          budget: accounting,
+          provider: () => createProvider(loaded.settings),
+          agent: {
+            model: loaded.settings.provider.model,
+            maxTurns,
+            timeoutMs,
+            maxTotalTokens,
+            maxOutputTokens: loaded.settings.limits.maxOutputTokens,
+            context: loaded.settings.context,
+            sensitiveValues: secrets,
+          },
+          ...(restored ? { history: restored.messages, usedIds: restored.subagentIds ?? [] } : {}),
+          progress: (event) => printSubagentProgress(event, options.json ?? false),
+        })
+      : undefined;
+    pool?.bind(executor);
     const agent = new AgentLoop(provider, executor, {
+      ...(accounting
+        ? {
+            accounting,
+            aggregateTokens: true,
+            subagentIds: () => pool!.usedIds,
+            subagentRecoveryLimit: loaded.settings.subagents.maxTotalTokens,
+          }
+        : {}),
       initializeTools: async (setupSignal) => {
         for (const id of Object.keys(selected)) {
           const result = await mcp.connect(id, executor, setupSignal);

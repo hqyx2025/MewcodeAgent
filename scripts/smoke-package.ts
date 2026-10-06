@@ -122,6 +122,31 @@ registerHooks({
     .map((line) => JSON.parse(line) as { type: string; reason?: string });
   assert(agentEvents.some((event) => event.type === 'tool_result'));
   assert.equal(agentEvents.at(-1)?.reason, 'completed');
+  await writeFile(
+    join(installation, '子任务.json'),
+    JSON.stringify({
+      tasks: [
+        { id: 'installed-one', goal: '列出目录' },
+        { id: 'installed-two', goal: '再次列出目录' },
+      ],
+    }),
+  );
+  const childEvents = (await run(['delegate', '--tasks-file', '子任务.json', '--json'])).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  const children = JSON.parse(childEvents.at(-1).result.content).tasks;
+  assert.equal(children.length, 2);
+  assert(children.every((item: { status: string }) => item.status === 'completed'));
+  assert.equal(new Set(children.map((item: { agentId: string }) => item.agentId)).size, 2);
+  const delegated = (
+    await run(['--subagents', '--mode', 'plan', 'run', '检查目录', '--json'])
+  ).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert(delegated.some((item) => item.type === 'subagent' && item.state === 'completed'));
+  assert.equal(delegated.at(-1).reason, 'completed');
   await writeFile(join(installation, 'AGENTS.md'), 'package-guidance-must-not-print');
   const promptMetadata = JSON.parse((await run(['--mode', 'plan', 'prompt', '--json'])).stdout) as {
     version: string;

@@ -14,8 +14,15 @@ import type { SessionStore, SessionState } from './session.js';
 import type { MemoryStore, MemorySelection } from './memory.js';
 import type { MemorySettings } from './memory-schema.js';
 import type { SkillCatalog, SkillSelection } from './skills.js';
+import type { TokenBudget } from './token-budget.js';
+import type { LLMRequest } from '../providers/types.js';
 
 export interface AgentOptions {
+  subagentRecoveryLimit?: number;
+  subagentIds?: () => readonly string[];
+  accounting?: TokenBudget;
+  aggregateTokens?: boolean;
+  onToolResult?: (result: Readonly<ToolResult>) => void;
   model: string;
   mode: ToolMode;
   maxTurns: number;
@@ -33,7 +40,7 @@ export interface AgentOptions {
   initializeTools?: (signal: AbortSignal) => Promise<void>;
 }
 
-export type AgentEvent =
+export type AgentEvent = { agentId?: string } & (
   | { type: 'context'; measure: ContextMeasure }
   | {
       type: 'compacted';
@@ -55,7 +62,8 @@ export type AgentEvent =
       toolCalls: number;
       totalTokens: number;
       estimated: boolean;
-    };
+    }
+);
 
 export class AgentLoop {
   private messages: LLMMessage[] = [];
@@ -117,7 +125,7 @@ export class AgentLoop {
 
   private compose(
     instructions: ProjectInstructions,
-    tools: PromptContext['tools'] = this.executor.registry
+    tools: PromptContext['tools'] = this.executor
       .definitions()
       .filter((tool) => this.executor.mode !== 'plan' || tool.effect === 'read')
       .map(({ name, effect }) => ({ name, effect })),
@@ -193,6 +201,14 @@ export class AgentLoop {
     prompt: string,
     signal: AbortSignal = new AbortController().signal,
   ): AsyncIterable<AgentEvent> {
+    for await (const event of this.runInternal(prompt, signal))
+      yield { ...event, agentId: this.executor.agentId };
+  }
+
+  private async *runInternal(
+    prompt: string,
+    signal: AbortSignal = new AbortController().signal,
+  ): AsyncIterable<AgentEvent> {
     if (this.busy) throw new AppError('BUSY', 'Agent 任务尚未结束。');
     if (!prompt.trim() && !this.options.resume)
       throw new AppError('INVALID_PROMPT', '请输入非空任务。');
@@ -232,14 +248,31 @@ export class AgentLoop {
     let inFlight: string | undefined;
     let status: SessionState['status'] = 'running';
     let endReason: 'error' | undefined;
+    let reservation: ReturnType<TokenBudget['reserve']> | undefined;
     const checkpoint = async (
       event: Parameters<SessionStore['commit']>[1] = 'checkpoint',
       messages = this.messages,
     ) => {
+      if (this.options.accounting && this.options.aggregateTokens) {
+        totalTokens = this.options.accounting.snapshot.used;
+        estimated = this.options.accounting.snapshot.estimated;
+      }
       if (this.options.session)
         await this.options.session.commit(
           {
             mode: this.executor.mode,
+            ...(this.options.subagentRecoveryLimit && pending.some((call) => call.name === 'Task')
+              ? {
+                  pendingSubagentTokens: Math.min(
+                    this.options.subagentRecoveryLimit,
+                    this.options.accounting?.snapshot.available ??
+                      this.options.subagentRecoveryLimit,
+                  ),
+                }
+              : {}),
+            ...(this.options.subagentIds || restored?.subagentIds
+              ? { subagentIds: [...(this.options.subagentIds?.() ?? restored?.subagentIds ?? [])] }
+              : {}),
             messages: structuredClone(messages),
             seenIds: [...seenIds],
             actions: [...actions],
@@ -280,7 +313,7 @@ export class AgentLoop {
         combined,
       );
       await this.options.initializeTools?.(combined);
-      const visible = this.executor.registry
+      const visible = this.executor
         .definitions()
         .filter((tool) => this.options.mode !== 'plan' || tool.effect === 'read');
       const definitions = visible.map(({ name, description, parameters }) => ({
@@ -388,6 +421,19 @@ export class AgentLoop {
         }
         if (this.options.mode !== this.executor.mode)
           throw new AppError('CONFIG_INVALID', '任务期间权限模式已变化，停止当前任务。');
+        if (this.options.accounting) {
+          const needed = measure.estimatedInputTokens + this.options.maxOutputTokens;
+          if (
+            needed > this.options.accounting.snapshot.available ||
+            needed + totalTokens > (this.options.maxTotalTokens ?? 200_000)
+          ) {
+            turns--;
+            status = 'stopped';
+            yield await finish('token_budget');
+            return;
+          }
+          reservation = this.options.accounting.reserve(needed, this.executor.agentId);
+        }
         yield { type: 'turn_start', turn: turns };
         const buffer = new ToolCallBuffer();
         let text = '';
@@ -395,7 +441,9 @@ export class AgentLoop {
         let continuation: LLMMessage['continuation'];
         let usage: Extract<LLMEvent, { type: 'usage' }> | undefined;
         let events = 0;
-        for await (const event of this.provider.stream(
+        const ticket = reservation;
+        reservation = undefined;
+        for await (const event of this.modelStream(
           {
             model: this.options.model,
             messages: structuredClone(this.messages),
@@ -403,6 +451,8 @@ export class AgentLoop {
             tools: definitions,
           },
           combined,
+          ticket,
+          measure.estimatedInputTokens,
         )) {
           this.checkCancelled(combined);
           if (end !== undefined || ++events > 10_000)
@@ -540,6 +590,8 @@ export class AgentLoop {
             toolCalls++;
             failures = result.ok ? 0 : failures + 1;
           }
+          result.agentId = this.executor.agentId;
+          this.options.onToolResult?.(structuredClone(result));
           const compactResult = this.options.session
             ? await this.options.session.spill(result, context.toolResultBytes)
             : inlineResult(result, context.toolResultBytes);
@@ -576,6 +628,7 @@ export class AgentLoop {
       if (error instanceof AppError) throw error;
       throw new AppError('MODEL_PROTOCOL', 'Agent 模型响应无效；已完成的操作保留。');
     } finally {
+      reservation?.cancel();
       await this.executor
         .dispatchHook(
           'SessionEnd',
@@ -621,5 +674,53 @@ export class AgentLoop {
 
   private checkCancelled(signal: AbortSignal): void {
     if (signal.aborted) throw new AppError('CANCELLED', 'Agent 任务已取消。');
+  }
+
+  private async *modelStream(
+    request: LLMRequest,
+    signal: AbortSignal,
+    ticket: ReturnType<TokenBudget['reserve']> | undefined,
+    inputEstimate: number,
+  ): AsyncIterable<LLMEvent> {
+    if (!ticket) {
+      yield* this.provider.stream(request, signal);
+      return;
+    }
+    let usage: Extract<LLMEvent, { type: 'usage' }> | undefined;
+    let outputBytes = 0;
+    if (signal.aborted) {
+      ticket.cancel();
+      this.checkCancelled(signal);
+    }
+    try {
+      for await (const event of this.provider.stream(request, signal)) {
+        if (event.type === 'text_delta') outputBytes += Buffer.byteLength(event.text);
+        if (event.type === 'tool_call_delta')
+          outputBytes += Buffer.byteLength(event.arguments ?? '') + 32;
+        if (event.type === 'continuation')
+          outputBytes += Buffer.byteLength(JSON.stringify(event.items));
+        if (
+          event.type === 'usage' &&
+          !usage &&
+          Number.isSafeInteger(event.inputTokens) &&
+          Number.isSafeInteger(event.outputTokens) &&
+          event.inputTokens >= 0 &&
+          event.outputTokens >= 0
+        )
+          usage = event;
+        if (event.type === 'finish' && !usage) {
+          usage = {
+            type: 'usage',
+            inputTokens: inputEstimate,
+            outputTokens: outputBytes,
+            estimated: true,
+          };
+          yield usage;
+        }
+        yield event;
+      }
+    } finally {
+      ticket.settle(usage);
+    }
   }
 }

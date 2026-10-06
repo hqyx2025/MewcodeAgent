@@ -28,6 +28,8 @@ export type ErrorCode =
   | 'SKILL_INVALID'
   | 'SKILL_LIMIT'
   | 'HOOK_FAILED'
+  | 'TOKEN_BUDGET'
+  | 'SUBAGENT_INVALID'
   | 'BUSY';
 
 export class AppError extends Error {

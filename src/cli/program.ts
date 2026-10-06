@@ -3,6 +3,7 @@ import metadata from '../../package.json' with { type: 'json' };
 import type { ConfigPatch } from '../config/schema.js';
 
 interface CLIOptions {
+  subagents?: boolean;
   cwd?: string;
   config?: string;
   provider?: string;
@@ -33,6 +34,7 @@ async function loadOptions(options: CLIOptions) {
   if (options.storageDir !== undefined) storage.directory = options.storageDir;
   if (options.logFile !== undefined) storage.logFile = options.logFile;
   const raw: Record<string, unknown> = {};
+  if (options.subagents) raw.subagents = { enabled: true };
   if (Object.keys(provider).length > 0) raw.provider = provider;
   if (Object.keys(storage).length > 0) raw.storage = storage;
   if (options.mode !== undefined) raw.mode = options.mode;
@@ -60,6 +62,7 @@ export function createProgram(): Command {
     .option('--provider <kind>', 'mock / openai-compatible / anthropic')
     .option('--model <name>', '覆盖模型名称')
     .option('--mode <mode>', 'plan / default / accept-edits')
+    .option('--subagents', '用户显式开启只读Task委派（深度1、共享预算）')
     .option('--base-url <url>', '覆盖模型服务地址（不含凭据）')
     .option('--api-key-env <name>', '指定密钥环境变量名称，不接受密钥值')
     .option('--storage-dir <directory>', '覆盖会话与缓存存储目录')
@@ -120,6 +123,22 @@ export function createProgram(): Command {
     });
 
   program.action(() => program.outputHelp());
+  program
+    .command('delegate')
+    .description('用户显式执行一批只读子任务；模拟服务可离线验证')
+    .requiredOption(
+      '--tasks-file <file>',
+      '项目内UTF-8 JSON {tasks:[{id,goal,context,tools}]}，最多32KiB',
+    )
+    .option('--json', '输出JSONL进度及汇总')
+    .action(async (_options: unknown, command: Command) => {
+      const loaded = await loadOptions({
+        ...command.optsWithGlobals<CLIOptions>(),
+        subagents: true,
+      });
+      const { delegateTasks } = await import('./subagents.js');
+      await delegateTasks(loaded, command.opts<{ tasksFile: string; json?: boolean }>());
+    });
   program
     .command('hooks')
     .description('查看有效Hook配置和执行边界，不执行脚本或调用模型')

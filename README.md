@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M12 Hook 系统已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源与生命周期Hook。M12 的边界见[规格](docs/modules/M12/spec.md)与[验收记录](docs/modules/M12/checklist.md)，下一模块为M13 SubAgent。
+当前阶段：**M13 SubAgent 本地验收与独立安装包通过，Windows/Linux CI待核对**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源、生命周期Hook与显式只读子任务。M13 的边界见[规格](docs/modules/M13/spec.md)与[验收记录](docs/modules/M13/checklist.md)，下一模块为M14 Worktree。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M12/spec.md)、[任务](docs/modules/M12/tasks.md)与[验收记录](docs/modules/M12/checklist.md)可直接查看；M01–M11 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M13/spec.md)、[任务](docs/modules/M13/tasks.md)与[验收记录](docs/modules/M13/checklist.md)可直接查看；M01–M12 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -123,6 +123,29 @@ process.stdout.write(JSON.stringify({ decision: blocked ? 'block' : 'continue' }
 `npm run dev -- hooks` 只查看配置；`run` 触发SessionStart、PreToolUse、PostToolUse、Stop、SessionEnd，独立 `tool` 与 `mcp` 调用触发工具事件。脚本执行需要shell审批，Plan禁止；chat和prompt不会执行Hook脚本。只接受结构化JSON，PreToolUse可通过 `updatedInput` 替换整个输入，随后重新校验和授权；安全事件失败阻止动作，通知失败保留工具实际结果。`run --json` 可查看脱敏Hook审计，`--audit-file`可保存JSONL，`npm run bench:hooks`测量本地延迟。
 
 脚本作为已批准的Node ESM快照执行，支持node:内置模块；相对/包名导入不可用，需要绝对file URL。环境变量只显式引用名称，不能在配置内填写密钥值。[完整协议、限额、取消和恢复边界](docs/modules/M12/spec.md)。
+
+## 只读 SubAgent
+
+```powershell
+npm run dev -- --provider mock --model mock-v1 --subagents --mode plan run "检查目录" --json
+npm run dev -- --provider mock --model mock-v1 delegate --tasks-file tasks.json --json
+npm run bench:subagents
+```
+
+任务文件示例：
+
+```json
+{
+  "tasks": [
+    { "id": "core", "goal": "检查 src/core 的任务生命周期" },
+    { "id": "tools", "goal": "检查 src/tools 的权限入口" }
+  ]
+}
+```
+
+`run` 默认关闭委派；用户通过 `--subagents` 或用户配置开启后，模型可以调用 `Task`。`delegate` 是用户明确提交任务的入口，每批最多4项，整个池默认最多8项、并发2项。项目配置只能收紧限额。Mock仅演示协议和目录列表；真实分析需配置已有provider。
+
+孩子固定Plan、深度1，仅开放ReadFile/Glob/Grep，继承父deny与Hook边界；父历史、记忆、Skill和审批授权不复制。结果只含状态、用量、摘要及核验后的观察引用；失败不会丢失其他任务结果，重试需新id和retryOf。父取消传播到队列与运行任务，父子共享token预算，缺少usage按保守估算记账，父汇总成本也计入。保存会话后保留任务id并阻止恢复重放；子会话不独立恢复。写入子任务与工作树隔离留待M14。[配置、证据核验、预算与恢复限制](docs/modules/M13/spec.md)。
 
 ## 模型执行任务
 
@@ -243,7 +266,7 @@ permissions:
 
 递归 Glob/Grep 范围与受限目录相交时，整次查询被拒绝或要求审批，应缩小搜索范围。ReadFile 路径 deny 同时保护递归读取、项目指令和编辑准备阶段；需要审批的项目指令不会被自动注入。模型、普通文件或项目指令不能修改权限。
 
-会话授权只匹配完整参数、目标、预览、shell及策略版本，不授权目录或命令前缀，不跨进程保存。每次仍检查路径和文件revision；模式变化清空授权，运行或审批中不能切换。执行器提供受约束的 fork 接口，实际子Agent在M13实现。
+会话授权只匹配完整参数、目标、预览、shell及策略版本，不授权目录或命令前缀，不跨进程保存。每次仍检查路径和文件revision；模式变化清空授权，运行或审批中不能切换。M13子Agent通过受约束的fork继承父权限，仅开放任务指定的只读工具。
 
 `run --json` 增加 `permission` 事件；`tool` 的 JSON 带 `audit`。审计只含决策、来源、模式、授权方式、缓存命中、执行器标识及调用/参数摘要，不含命令、文件内容或绝对路径。`--audit-file` 写入新JSONL文件，不能覆盖已有文件或跟随链接，写入故障阻止动作。推荐保存到项目之外，或已创建的 `.mewcode/audit/`；若选项目内其他位置，该文件会成为禁止范围，覆盖它的递归搜索也会拒绝。审计记录表示授权决策，实际执行成功与否以工具结果为准，不用于自动重放任务。
 

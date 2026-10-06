@@ -21,6 +21,8 @@ import type {
 } from './types.js';
 
 export interface ExecutorOptions {
+  agentId?: string;
+  allowTools?: readonly string[];
   hooks?: HookHandler;
   root: string;
   mode?: ToolMode;
@@ -54,6 +56,21 @@ export class ToolExecutor {
     return this.currentMode;
   }
 
+  get agentId(): string {
+    return this.options.agentId ?? this.executorId;
+  }
+
+  private allowsTool(name: string): boolean {
+    return (
+      (!this.options.allowTools || this.options.allowTools.includes(name)) &&
+      (!this.parent || this.parent.allowsTool(name))
+    );
+  }
+
+  definitions() {
+    return this.registry.definitions().filter((tool) => this.allowsTool(tool.name));
+  }
+
   get auditLog(): readonly PermissionAudit[] {
     return structuredClone(this.records);
   }
@@ -70,6 +87,7 @@ export class ToolExecutor {
     return {
       rules: structuredClone(this.options.rules ?? []),
       denyTools: [...(this.options.denyTools ?? [])],
+      ...(this.options.allowTools ? { allowTools: [...this.options.allowTools] } : {}),
       ...(this.parent ? { parentMode: this.parent.mode } : {}),
     };
   }
@@ -125,6 +143,8 @@ export class ToolExecutor {
     path: string,
     recursive: boolean,
   ): PermissionDecision {
+    if (!this.allowsTool(name))
+      return { decision: 'deny', reason: 'deny-tool', sources: ['whitelist'] };
     const result = evaluatePermission(
       this.mode,
       name,
@@ -156,6 +176,7 @@ export class ToolExecutor {
     if (this.records.length >= 10_000)
       throw new ToolError('TOOL_LIMIT', '权限审计达到10000条上限。');
     const record: PermissionAudit = {
+      agentId: this.agentId,
       version: 1,
       executorId: this.executorId,
       sequence: this.records.length + 1,
@@ -202,6 +223,13 @@ export class ToolExecutor {
 
   static async create(registry: ToolRegistry, options: ExecutorOptions): Promise<ToolExecutor> {
     if (
+      (options.agentId && !/^[\w.-]{1,128}$/.test(options.agentId)) ||
+      (options.allowTools &&
+        (options.allowTools.length > 64 ||
+          options.allowTools.some((name) => !/^[\w.-]{1,128}$/.test(name))))
+    )
+      throw new ToolError('TOOL_INPUT', '执行器身份或工具白名单无效。');
+    if (
       !['plan', 'default', 'accept-edits'].includes(options.mode ?? 'default') ||
       !Number.isSafeInteger(options.timeoutMs ?? 60_000) ||
       (options.timeoutMs ?? 60_000) < 1 ||
@@ -236,6 +264,7 @@ export class ToolExecutor {
       rules,
       ...(options.shell ? { shell: { ...options.shell } } : {}),
       denyTools: [...(options.denyTools ?? [])],
+      ...(options.allowTools ? { allowTools: [...options.allowTools] } : {}),
     });
   }
 
@@ -251,6 +280,7 @@ export class ToolExecutor {
         event,
         eventId: randomUUID(),
         sessionId: this.executorId,
+        agentId: this.agentId,
         mode: this.mode,
         ...structuredClone(fields),
       },
@@ -341,6 +371,7 @@ export class ToolExecutor {
 
   private failure(call: ToolCall, code: string, message: string): ToolResult {
     return {
+      agentId: this.agentId,
       callId: call.callId,
       name: call.name,
       ok: false,
@@ -412,6 +443,7 @@ export class ToolExecutor {
         locked = true;
       }
       const context: ToolContext = {
+        agentId: this.agentId,
         paths: this.paths,
         signal: combined,
         shell: this.shell,
@@ -443,6 +475,7 @@ export class ToolExecutor {
       if (cached) authorization = 'session';
       else if (decision.decision === 'ask') {
         const request = Object.freeze({
+          agentId: this.agentId,
           callId: call.callId,
           name: tool.name,
           effect: tool.effect,
@@ -500,7 +533,13 @@ export class ToolExecutor {
       if (authorization === 'session') this.grants.add(fingerprint);
       const payload = await prepared.run();
       if (tool.effect !== 'write') checkCancelled(combined);
-      return { callId: call.callId, name: tool.name, ok: payload.error === undefined, ...payload };
+      return {
+        callId: call.callId,
+        name: tool.name,
+        ok: payload.error === undefined,
+        ...payload,
+        agentId: this.agentId,
+      };
     } catch (error) {
       const normalized = timedOut
         ? new ToolError('TOOL_TIMEOUT', '工具调用超过总时间限制。')
@@ -512,6 +551,7 @@ export class ToolExecutor {
               ? new ToolError('TOOL_INPUT', '工具参数不符合Schema。')
               : new ToolError('TOOL_FAILED', '工具操作失败，请检查目标权限与运行环境。');
       return {
+        agentId: this.agentId,
         callId: call.callId,
         name: call.name,
         ok: false,

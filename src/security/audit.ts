@@ -7,6 +7,7 @@ import type { ToolEffect, ToolMode } from '../tools/types.js';
 import type { HookAudit } from '../tools/hook-types.js';
 
 export interface PermissionAudit {
+  agentId?: string;
   version: 1;
   executorId: string;
   sequence: number;

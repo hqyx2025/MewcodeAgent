@@ -28,10 +28,54 @@ export class MockProvider implements LLMProvider {
   }
 
   async *stream(request: LLMRequest, signal: AbortSignal): AsyncIterable<LLMEvent> {
+    const isChild = request.messages.some(
+      (message) => message.role === 'user' && message.content.startsWith('MEWCODE_SUBAGENT_V1\n'),
+    );
+    if (isChild && this.response === undefined) {
+      this.checkCancelled(signal);
+      const tool = request.messages.findLast((message) => message.role === 'tool');
+      if (!tool && request.tools?.some((item) => item.name === 'Glob')) {
+        yield {
+          type: 'tool_call_delta',
+          index: 0,
+          callId: 'mock-glob-1',
+          name: 'Glob',
+          arguments: '{"pattern":"*","maxResults":20}',
+        };
+        yield { type: 'finish', reason: 'tool_calls' };
+      } else {
+        const result = tool
+          ? (JSON.parse(tool.content) as { ok: boolean; data?: { paths?: string[] } })
+          : undefined;
+        const paths = result?.ok ? (result.data?.paths ?? []) : [];
+        yield {
+          type: 'text_delta',
+          text: JSON.stringify({
+            summary: '离线模拟仅演示独立子任务与目录列表，不解释源码。',
+            evidence: paths.slice(0, 8).map((path) => ({ path, note: 'Glob目录列表' })),
+          }),
+        };
+        yield { type: 'finish', reason: 'stop' };
+      }
+      return;
+    }
     if (request.tools?.length && this.response === undefined) {
       this.checkCancelled(signal);
       const result = request.messages.findLast((message) => message.role === 'tool');
       if (!result) {
+        if (request.tools.some((tool) => tool.name === 'Task')) {
+          yield {
+            type: 'tool_call_delta',
+            index: 0,
+            callId: 'mock-task-1',
+            name: 'Task',
+            arguments: JSON.stringify({
+              tasks: [{ id: 'mock-directory', goal: '列出项目目录', tools: ['Glob'] }],
+            }),
+          };
+          yield { type: 'finish', reason: 'tool_calls' };
+          return;
+        }
         yield {
           type: 'tool_call_delta',
           index: 0,
@@ -43,7 +87,7 @@ export class MockProvider implements LLMProvider {
       } else {
         yield {
           type: 'text_delta',
-          text: `离线 Agent 已通过 Glob 查看项目目录，结果：${result.content}\n此模拟仅演示工具闭环，不解释或修改任意任务。`,
+          text: `离线 Agent 已完成${JSON.parse(result.content).name === 'Task' ? '只读委派' : 'Glob目录查看'}，结果：${result.content}\n此模拟仅演示工具闭环，不解释或修改任意任务。`,
         };
         yield { type: 'finish', reason: 'stop' };
       }
