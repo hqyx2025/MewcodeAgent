@@ -11,6 +11,10 @@ import { permissionRuntime } from './permissions.js';
 import { MockProvider } from '../providers/mock.js';
 import type { PromptManifest } from '../core/prompt.js';
 import { MCPManager } from '../mcp/manager.js';
+import { SessionStore } from '../core/session.js';
+import type { SessionState } from '../core/session.js';
+import { relative, join, sep } from 'node:path';
+import { referencedValues } from '../mcp/config.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -19,6 +23,8 @@ export interface RunCLIOptions {
   timeoutMs?: string;
   auditFile?: string;
   mcp?: string[];
+  saveSession?: boolean;
+  resume?: string;
 }
 
 function sensitiveValues(loaded: LoadedConfiguration): string[] {
@@ -126,15 +132,78 @@ export async function runAgent(
   const registry = createBuiltinRegistry();
   const mcp = new MCPManager(registry, selected, process.env, sensitiveValues(loaded));
   const provider = await createProvider(loaded.settings);
-  const runtime = await permissionRuntime(loaded, options.auditFile, options.json);
+  let session: SessionStore | undefined;
+  let restored: SessionState | undefined;
+  if (options.resume && options.saveSession)
+    throw new AppError('CONFIG_INVALID', '--save-session 和 --resume 不能同时使用。');
+  if (!task.trim() && !options.resume)
+    throw new AppError('INVALID_PROMPT', '请输入任务或显式使用--resume。');
+  const secrets = [
+    ...sensitiveValues(loaded),
+    ...Object.values(selected).flatMap((config) => referencedValues(config, process.env)),
+  ];
+  if (options.resume) {
+    const resumed = await SessionStore.resume(
+      loaded.paths.storageDirectory,
+      options.resume,
+      loaded.cwd,
+      secrets,
+    );
+    session = resumed.store;
+    restored = resumed.state;
+    if (
+      session.owner.provider !== provider.id ||
+      session.owner.model !== loaded.settings.provider.model
+    ) {
+      await session.close();
+      throw new AppError('SESSION_INVALID', '恢复必须使用原provider和model，避免续传格式不兼容。');
+    }
+  } else if (options.saveSession)
+    session = await SessionStore.create(
+      loaded.paths.storageDirectory,
+      {
+        cwd: loaded.cwd,
+        model: loaded.settings.provider.model,
+        provider: provider.id,
+        mode: loaded.settings.mode,
+      },
+      secrets,
+    );
+  const runtime = await permissionRuntime(loaded, options.auditFile, options.json).catch(
+    async (error: unknown) => {
+      await session?.close();
+      throw error;
+    },
+  );
   const controller = new AbortController();
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]);
   try {
+    const modeRank = { plan: 0, default: 1, 'accept-edits': 2 };
+    const ceilings = [
+      loaded.settings.mode,
+      ...(session ? [session.owner.mode] : []),
+      ...(restored ? [restored.mode] : []),
+    ];
+    const mode = ceilings.reduce((strict, candidate) =>
+      modeRank[strict] < modeRank[candidate] ? strict : candidate,
+    );
+    if (session) {
+      const local = relative(loaded.cwd, join(loaded.paths.storageDirectory, 'sessions'))
+        .split(sep)
+        .join('/');
+      if (local && local !== '..' && !local.startsWith('../') && !local.includes(':'))
+        runtime.rules.push({ source: 'cli', decision: 'deny', path: local });
+      if (options.json)
+        process.stdout.write(
+          `${JSON.stringify({ type: 'session', id: session.owner.id, restored: Boolean(restored), mode })}\n`,
+        );
+      else process.stderr.write(`会话 ${session.owner.id}${restored ? '（恢复）' : ''}\n`);
+    }
     const executor = await ToolExecutor.create(registry, {
       root: loaded.cwd,
-      mode: loaded.settings.mode,
+      mode,
       timeoutMs,
       approve: approveTool,
       rules: runtime.rules,
@@ -147,12 +216,15 @@ export async function runAgent(
     }
     const agent = new AgentLoop(provider, executor, {
       model: loaded.settings.provider.model,
-      mode: loaded.settings.mode,
+      mode,
       maxTurns,
       timeoutMs,
       maxOutputTokens: loaded.settings.limits.maxOutputTokens,
       maxTotalTokens,
       sensitiveValues: sensitiveValues(loaded),
+      context: loaded.settings.context,
+      ...(session ? { session } : {}),
+      ...(restored ? { resume: restored } : {}),
     });
     const shownWarnings = new Set<string>();
     try {
@@ -165,6 +237,10 @@ export async function runAgent(
         else if (event.type === 'tool_result')
           process.stderr.write(
             `${terminalText(event.result.name)}：${event.result.ok ? '成功' : terminalText(event.result.error?.code ?? '失败')}\n`,
+          );
+        else if (event.type === 'compacted')
+          process.stderr.write(
+            `上下文压缩：${event.beforeBytes} → ${event.afterBytes} bytes（本地摘录）\n`,
           );
         if (event.type === 'finish') {
           if (!options.json) {
@@ -182,6 +258,10 @@ export async function runAgent(
   } finally {
     await mcp.close();
     process.removeListener('SIGINT', cancel);
-    await runtime.close();
+    try {
+      await runtime.close();
+    } finally {
+      await session?.close();
+    }
   }
 }

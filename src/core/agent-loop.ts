@@ -7,6 +7,10 @@ import { ProjectInstructions, redactInstruction } from './instructions.js';
 import { byteLimit } from '../tools/errors.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { PromptContext, PromptManifest } from './prompt.js';
+import { compactHistory, defaultContext, measureContext, actionDigest } from './context.js';
+import type { ContextSettings, ContextMeasure } from './context.js';
+import { inlineResult, recoverState } from './session.js';
+import type { SessionStore, SessionState } from './session.js';
 
 export interface AgentOptions {
   model: string;
@@ -18,9 +22,20 @@ export interface AgentOptions {
   maxContextCharacters?: number;
   maxFailures?: number;
   sensitiveValues?: readonly string[];
+  context?: ContextSettings;
+  session?: SessionStore;
+  resume?: SessionState;
 }
 
 export type AgentEvent =
+  | { type: 'context'; measure: ContextMeasure }
+  | {
+      type: 'compacted';
+      beforeBytes: number;
+      afterBytes: number;
+      archivedMessages: number;
+      estimated: true;
+    }
   | { type: 'prompt_info'; manifest: PromptManifest }
   | { type: 'turn_start'; turn: number }
   | { type: 'text_delta'; text: string }
@@ -45,6 +60,9 @@ export class AgentLoop {
     private readonly executor: ToolExecutor,
     private readonly options: AgentOptions,
   ) {
+    const modeRank = { plan: 0, default: 1, 'accept-edits': 2 };
+    if (options.resume && modeRank[options.mode] > modeRank[options.resume.mode])
+      throw new AppError('CONFIG_INVALID', '恢复执行器不能提升检查点中的权限模式。');
     if (options.mode !== executor.mode)
       throw new AppError('CONFIG_INVALID', 'Agent 与工具执行器的权限模式必须一致。');
     for (const value of [
@@ -150,7 +168,8 @@ export class AgentLoop {
     signal: AbortSignal = new AbortController().signal,
   ): AsyncIterable<AgentEvent> {
     if (this.busy) throw new AppError('BUSY', 'Agent 任务尚未结束。');
-    if (!prompt.trim()) throw new AppError('INVALID_PROMPT', '请输入非空任务。');
+    if (!prompt.trim() && !this.options.resume)
+      throw new AppError('INVALID_PROMPT', '请输入非空任务。');
     if (!this.provider.capabilities.toolCalling)
       throw new AppError('MODEL_UNSUPPORTED', '当前 provider 不支持工具调用。');
     if (signal.aborted) throw new AppError('CANCELLED', '任务已取消。');
@@ -163,20 +182,50 @@ export class AgentLoop {
     }, this.options.timeoutMs);
     timer.unref();
     const combined = AbortSignal.any([signal, controller.signal]);
-    this.messages = [
-      {
-        role: 'system',
-        content: '',
-      },
-      { role: 'user', content: prompt },
-    ];
-    let totalTokens = 0;
-    let estimated = false;
-    let toolCalls = 0;
-    let failures = 0;
-    let turns = 0;
-    const seenIds = new Set<string>();
+    const restored = this.options.resume ? recoverState(this.options.resume) : undefined;
+    this.messages = restored
+      ? structuredClone(restored.messages)
+      : [
+          {
+            role: 'system',
+            content: '',
+          },
+          { role: 'user', content: prompt },
+        ];
+    if (restored && prompt.trim()) this.messages.push({ role: 'user', content: prompt });
+    let totalTokens = restored?.totalTokens ?? 0;
+    let estimated = restored?.estimated ?? false;
+    let toolCalls = restored?.toolCalls ?? 0;
+    let failures = restored?.failures ?? 0;
+    let turns = restored?.turns ?? 0;
+    const seenIds = new Set<string>(restored?.seenIds ?? []);
+    const actions = new Set<string>(restored?.actions ?? []);
+    const blockedActions = new Set<string>(restored?.actions ?? []);
+    const context = this.options.context ?? defaultContext;
     let pending: LLMToolCall[] = [];
+    let inFlight: string | undefined;
+    let status: SessionState['status'] = 'running';
+    const checkpoint = async (
+      event: Parameters<SessionStore['commit']>[1] = 'checkpoint',
+      messages = this.messages,
+    ) => {
+      if (this.options.session)
+        await this.options.session.commit(
+          {
+            mode: this.executor.mode,
+            messages: structuredClone(messages),
+            seenIds: [...seenIds],
+            actions: [...actions],
+            totalTokens,
+            estimated,
+            turns,
+            toolCalls,
+            failures,
+            status,
+          },
+          event,
+        );
+    };
     const instructions = new ProjectInstructions(
       this.executor.paths,
       this.options.sensitiveValues,
@@ -207,14 +256,59 @@ export class AgentLoop {
       const initial = this.compose(instructions, promptTools);
       this.messages[0]!.content = initial.text;
       yield { type: 'prompt_info', manifest: initial.manifest };
-      for (turns = 1; turns <= this.options.maxTurns; turns++) {
+      await checkpoint(restored ? 'recovery' : 'checkpoint');
+      if (restored?.status === 'completed' && !prompt.trim()) {
+        status = 'completed';
+        await checkpoint('finish');
+        yield finish('completed');
+        return;
+      }
+      for (turns = (restored?.turns ?? 0) + 1; turns <= this.options.maxTurns; turns++) {
         this.checkCancelled(combined);
+        let measure = measureContext(
+          this.messages,
+          definitions,
+          context.windowTokens,
+          this.options.maxOutputTokens,
+        );
+        const needsCompact =
+          measure.estimatedInputTokens + measure.outputReserveTokens >=
+            context.windowTokens * context.triggerRatio ||
+          JSON.stringify(this.messages).length + JSON.stringify(definitions).length >
+            (this.options.maxContextCharacters ?? 200_000);
+        if (context.autoCompact && needsCompact) {
+          const candidate = compactHistory(this.messages, context);
+          if (candidate) {
+            await checkpoint();
+            await checkpoint('compact', candidate.messages);
+            this.messages = candidate.messages;
+            yield {
+              type: 'compacted',
+              beforeBytes: candidate.beforeBytes,
+              afterBytes: candidate.afterBytes,
+              archivedMessages: candidate.archivedMessages,
+              estimated: true,
+            };
+            measure = measureContext(
+              this.messages,
+              definitions,
+              context.windowTokens,
+              this.options.maxOutputTokens,
+            );
+          }
+        }
+        yield { type: 'context', measure };
         const contextSize =
           JSON.stringify(this.messages).length + JSON.stringify(definitions).length;
-        if (contextSize > (this.options.maxContextCharacters ?? 200_000))
+        if (
+          contextSize > (this.options.maxContextCharacters ?? 200_000) ||
+          measure.estimatedInputTokens + measure.outputReserveTokens > context.windowTokens
+        )
           throw new AppError('CONTEXT_LIMIT', '任务上下文达到上限；已完成的工具操作保留。');
         if (totalTokens >= (this.options.maxTotalTokens ?? 200_000)) {
           turns--;
+          status = 'stopped';
+          await checkpoint('finish');
           yield finish('token_budget');
           return;
         }
@@ -274,9 +368,12 @@ export class AgentLoop {
         };
         totalTokens += consumed.inputTokens + consumed.outputTokens;
         estimated ||= consumed.estimated;
+        await checkpoint();
         yield consumed;
         // A truncated call is never parsed or executed, even if its prefix looks valid.
         if (end === 'length') {
+          status = 'stopped';
+          await checkpoint('finish');
           yield finish('length');
           return;
         }
@@ -286,6 +383,8 @@ export class AgentLoop {
         if (calls.some((call) => seenIds.has(call.callId)))
           throw new AppError('MODEL_PROTOCOL', '模型重复使用了已执行的调用编号，本轮未执行工具。');
         if (totalTokens > (this.options.maxTotalTokens ?? 200_000)) {
+          status = 'stopped';
+          await checkpoint('finish');
           yield finish('token_budget');
           return;
         }
@@ -304,61 +403,96 @@ export class AgentLoop {
           ...(continuation ? { continuation } : {}),
         });
         if (!calls.length) {
+          status = 'completed';
+          await checkpoint('finish');
           yield finish('completed');
           return;
         }
         pending = [...calls];
+        for (const call of calls) seenIds.add(call.callId);
+        await checkpoint();
         for (const call of calls) {
-          seenIds.add(call.callId);
+          let effect: string | undefined;
+          try {
+            effect = this.executor.registry.get(call.name).effect;
+          } catch {
+            /* Unknown calls are normalized by the executor. */
+          }
+          const action =
+            effect && effect !== 'read' ? actionDigest(call.name, call.arguments) : undefined;
+          if (action) actions.add(action);
+          await checkpoint('intent');
           if (!replan) yield { type: 'tool_start', callId: call.callId, name: call.name };
           // Tools stay serial: later calls may depend on a read revision or an earlier edit.
-          const result: ToolResult = replan
-            ? {
-                callId: call.callId,
-                name: call.name,
-                ok: false,
-                content:
-                  '项目指令或诊断已更新，本批工具均未执行。请阅读更新的系统提示后用新的callId重新计划。',
-                error: {
-                  code: 'INSTRUCTIONS_UPDATED',
-                  message: '本批未执行：项目指令更新需要重新计划。',
-                },
-              }
-            : this.executor.registry.isHidden(call.name)
+          inFlight = call.callId;
+          const result: ToolResult =
+            action && blockedActions.has(action)
               ? {
                   callId: call.callId,
                   name: call.name,
                   ok: false,
-                  content: '工具不对模型开放。',
-                  error: { code: 'TOOL_NOT_FOUND', message: '工具不对模型开放。' },
+                  content: '恢复历史中已有相同修改动作；未重放。请先核对外部状态。',
+                  error: {
+                    code: 'ACTION_REPLAY_BLOCKED',
+                    message: '已记录的修改动作不能在恢复中重放。',
+                  },
                 }
-              : await this.executor.execute(
-                  {
+              : replan
+                ? {
                     callId: call.callId,
                     name: call.name,
-                    input: JSON.parse(call.arguments) as unknown,
-                  },
-                  combined,
-                );
+                    ok: false,
+                    content:
+                      '项目指令或诊断已更新，本批工具均未执行。请阅读更新的系统提示后用新的callId重新计划。',
+                    error: {
+                      code: 'INSTRUCTIONS_UPDATED',
+                      message: '本批未执行：项目指令更新需要重新计划。',
+                    },
+                  }
+                : this.executor.registry.isHidden(call.name)
+                  ? {
+                      callId: call.callId,
+                      name: call.name,
+                      ok: false,
+                      content: '工具不对模型开放。',
+                      error: { code: 'TOOL_NOT_FOUND', message: '工具不对模型开放。' },
+                    }
+                  : await this.executor.execute(
+                      {
+                        callId: call.callId,
+                        name: call.name,
+                        input: JSON.parse(call.arguments) as unknown,
+                      },
+                      combined,
+                    );
           if (!replan) {
             toolCalls++;
             failures = result.ok ? 0 : failures + 1;
           }
+          const compactResult = this.options.session
+            ? await this.options.session.spill(result, context.toolResultBytes)
+            : inlineResult(result, context.toolResultBytes);
           this.messages.push({
             role: 'tool',
             callId: call.callId,
-            content: JSON.stringify(result),
+            content: JSON.stringify(compactResult),
           });
           pending.shift();
-          yield { type: 'tool_result', result };
+          inFlight = undefined;
+          await checkpoint('result');
+          yield { type: 'tool_result', result: compactResult };
           this.checkCancelled(combined);
           if (failures >= (this.options.maxFailures ?? 3)) {
+            status = 'stopped';
+            await checkpoint('finish');
             yield finish('repeated_failures');
             return;
           }
         }
       }
       turns = this.options.maxTurns;
+      status = 'stopped';
+      await checkpoint('finish');
       yield finish('max_turns');
     } catch (error) {
       if (timedOut && !signal.aborted)
@@ -376,13 +510,26 @@ export class AgentLoop {
             callId: call.callId,
             name: call.name,
             ok: false,
-            content: '任务停止，此调用未执行。',
-            error: { code: 'AGENT_STOPPED', message: '任务停止，此调用未执行。' },
+            content:
+              call.callId === inFlight
+                ? '调用完成状态不确定，恢复时不会重放。'
+                : '任务停止，此调用未执行。',
+            error: {
+              code: call.callId === inFlight ? 'ACTION_UNCERTAIN' : 'AGENT_STOPPED',
+              message:
+                call.callId === inFlight
+                  ? '调用完成状态不确定，需核对外部状态。'
+                  : '任务停止，此调用未执行。',
+            },
           }),
         });
       clearTimeout(timer);
       controller.abort();
       this.busy = false;
+      if (status === 'running') {
+        status = inFlight ? 'uncertain' : 'stopped';
+        await checkpoint('finish').catch(() => {});
+      }
     }
   }
 

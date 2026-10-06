@@ -185,6 +185,28 @@ registerHooks({
   ) as { ok: boolean; content: string };
   assert(mcpCall.ok && mcpCall.content === 'installed MCP');
 
+  const savedEvents = (
+    await run(['--mode', 'plan', 'run', 'installed persistent context', '--save-session', '--json'])
+  ).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { type: string; id?: string });
+  const savedSession = savedEvents.find((event) => event.type === 'session')?.id;
+  assert(savedSession);
+  assert((await run(['sessions', 'list'])).stdout.includes(savedSession));
+  const metadataOnly = (await run(['sessions', 'show', savedSession])).stdout;
+  assert(!metadataOnly.includes('installed persistent context'));
+  const resumedEvents = (
+    await run(['--mode', 'accept-edits', 'run', '--resume', savedSession, '--json'])
+  ).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { type: string; mode?: string; reason?: string });
+  assert.equal(resumedEvents.find((event) => event.type === 'session')?.mode, 'plan');
+  assert(!resumedEvents.some((event) => event.type === 'tool_start'));
+  assert.equal(resumedEvents.at(-1)?.reason, 'completed');
+  await run(['sessions', 'delete', savedSession]);
+
   const bin = join(
     installation,
     'node_modules',
@@ -221,6 +243,7 @@ registerHooks({
         prompt: 'passed (instruction metadata without source text)',
         permissions: 'passed (mode inspection, persisted redacted decision)',
         mcp: 'passed (inert list, mock stdio discovery and approved call)',
+        context: 'passed (save, metadata, resume without tool replay, retained Plan, owned delete)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

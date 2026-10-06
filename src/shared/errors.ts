@@ -16,6 +16,9 @@ export type ErrorCode =
   | 'CONTEXT_LIMIT'
   | 'INSTRUCTIONS_LIMIT'
   | 'AUDIT_FAILED'
+  | 'SESSION_INVALID'
+  | 'SESSION_IO'
+  | 'SESSION_LOCKED'
   | 'BUSY';
 
 export class AppError extends Error {

@@ -1,6 +1,7 @@
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  contextSummary?: true;
   toolCalls?: readonly LLMToolCall[];
   callId?: string;
   continuation?: { provider: 'responses' | 'anthropic'; items: readonly unknown[] };

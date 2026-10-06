@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M07 已完成本地模拟验收**，支持流式对话、六个编程工具、有界 Agent Loop、项目指令、分层权限与 MCP 客户端。M07 的兼容性和限制见 [规格](docs/modules/M07/spec.md) 与[验收记录](docs/modules/M07/checklist.md)。
+当前阶段：**M08 已完成本地验收，CI待核对**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP，以及可选持久会话、上下文压缩和结果溢写。M08 的恢复边界见 [规格](docs/modules/M08/spec.md) 与[验收记录](docs/modules/M08/checklist.md)。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M07/spec.md)、[任务](docs/modules/M07/tasks.md)与[验收记录](docs/modules/M07/checklist.md)可直接查看；M01–M06 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M08/spec.md)、[任务](docs/modules/M08/tasks.md)与[验收记录](docs/modules/M08/checklist.md)可直接查看；M01–M07 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -88,7 +88,29 @@ npm run agent -- "查询本地服务" --mcp local
 
 `mcp discover` 和 `mcp call` 的连接授权、工具调用授权分开处理。MCP 工具名称使用服务 ID 与远端名称摘要，输入/输出只接受有界 JSON Schema 子集；媒体、资源、sampling、elicitation 和自动重试不执行。调用超时或断连时不重放请求，外部副作用可能已经发生。
 
-`--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。当前工具串行执行、上下文有界，不持久化或自动恢复任务。
+`--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。工具串行执行，任务预算有限；持久会话需显式启用，恢复不会自动重放历史操作。
+
+## 上下文与会话
+
+```powershell
+npm run agent -- "检查项目入口" --save-session --mode plan
+# 使用上次输出的 UUID
+npm run agent -- --resume <session-id>
+npm run dev -- sessions list
+npm run dev -- sessions show <session-id>
+npm run dev -- sessions show <session-id> --content --checkpoint 1
+npm run dev -- sessions compact <session-id>
+npm run dev -- sessions result <session-id> <digest>.json
+npm run dev -- sessions delete <session-id>
+```
+
+默认窗口262144 tokens、触发比例0.75、近期4轮、摘要/工具结果各8192 bytes，可通过配置 `context.windowTokens/triggerRatio/recentTurns/summaryBytes/toolResultBytes/autoCompact` 调整。请求输入按序列化UTF-8字节保守估算并预留 `limits.maxOutputTokens`，不是模型精确tokenizer；累计费用预算仍区分provider usage和估算。
+
+自动压缩使用本地结构化摘录，额外模型调用为0；保留原始目标、当前系统指令和近期完整调用组，历史摘要只作为数据。摘要会省略细节，已保存会话可通过检查点查完整历史。长工具结果保存到会话 outputs 并返回有界预览、文件revision和溢写索引；未保存会话时仅返回有界内联结果。
+
+会话保存在 `<storageDirectory>/sessions/<UUID>`，绑定项目、provider和model。恢复重建项目指令、使用旧/当前模式中更严格者、重新审批新操作；MCP连接仍需显式指定。不再次执行旧callId或与已记录修改动作相同的参数，遇到不确定外部状态先核对，不保证外部动作与本地日志具备原子事务。
+
+崩溃遗留锁不会自动解除：核对原进程已退出后可用 `sessions unlock <session-id>`。目录拒绝链接和路径穿越，删除只清理归属验证通过且未锁定的单会话及溢写。单检查点/结果2MiB、单会话总64MiB、最多10000提交记录；磁盘或校验失败会停止后续动作。`sessions show`默认仅元数据，`--content`显式查看脱敏正文；会话脱敏覆盖已知凭据与常见密钥形式，不代表隐藏全部业务信息。
 
 ## 权限规则与审计
 
@@ -200,6 +222,7 @@ npm run bench:agent
 npm run bench:prompt
 npm run bench:permissions
 npm run bench:mcp
+npm run bench:context
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。

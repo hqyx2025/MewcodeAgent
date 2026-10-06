@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { permissionRuleSchema } from '../security/rules.js';
 import { mcpSettingsSchema } from '../mcp/config.js';
+import { contextSchema, defaultContext } from '../core/context.js';
 
 export const providerKinds = ['mock', 'openai-compatible', 'anthropic'] as const;
 export const agentModes = ['plan', 'default', 'accept-edits'] as const;
@@ -51,6 +52,7 @@ const storageSchema = z.strictObject({
 const permissionsSchema = z.strictObject({ rules: z.array(permissionRuleSchema).max(400) });
 
 export const configPatchSchema = z.strictObject({
+  context: contextSchema.partial().optional(),
   mcp: mcpSettingsSchema.optional(),
   provider: providerSchema.partial().optional(),
   mode: z.enum(agentModes).optional(),
@@ -61,6 +63,7 @@ export const configPatchSchema = z.strictObject({
 
 export const configSchema = z
   .strictObject({
+    context: contextSchema.default(defaultContext),
     mcp: mcpSettingsSchema.default({ servers: {} }),
     provider: providerSchema,
     mode: z.enum(agentModes),
@@ -69,6 +72,12 @@ export const configSchema = z
     permissions: permissionsSchema,
   })
   .superRefine((value, context) => {
+    if (value.limits.maxOutputTokens >= value.context.windowTokens)
+      context.addIssue({
+        code: 'custom',
+        path: ['context', 'windowTokens'],
+        message: '模型窗口必须大于输出预留token数',
+      });
     if (value.provider.kind !== 'mock' && value.provider.model === 'mock-v1') {
       context.addIssue({
         code: 'custom',
@@ -82,6 +91,7 @@ export type Settings = z.infer<typeof configSchema>;
 export type ConfigPatch = z.infer<typeof configPatchSchema>;
 
 export const defaultSettings: Settings = {
+  context: defaultContext,
   mcp: { servers: {} },
   provider: { kind: 'mock', model: 'mock-v1' },
   mode: 'default',
@@ -92,6 +102,7 @@ export const defaultSettings: Settings = {
 
 export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
   return {
+    context: mergeDefined(current.context, patch.context),
     mcp: { servers: { ...current.mcp.servers, ...patch.mcp?.servers } },
     provider: mergeDefined(current.provider, patch.provider),
     mode: patch.mode ?? current.mode,

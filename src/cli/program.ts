@@ -139,18 +139,41 @@ export function createProgram(): Command {
   program
     .command('run')
     .description('执行有界 Agent 任务；逐次审批文件修改与命令，Plan只读')
-    .argument('<task>', '编程任务')
+    .argument('[task]', '编程任务；--resume 时可省略')
     .option('--json', '输出JSONL事件（审批提示仍在stderr）')
     .option('--max-turns <count>', '模型轮数上限（1–1000）')
     .option('--max-total-tokens <count>', '累计输入+输出token上限（无usage时估算）')
     .option('--timeout-ms <milliseconds>', '整个任务时限（1–3600000）')
     .option('--mcp <id...>', '显式连接配置中的 MCP 服务（启动与调用均需审批）')
+    .option('--save-session', '保存可恢复会话及长工具结果（凭据脱敏）')
+    .option('--resume <id>', '恢复绑定当前项目的会话，不重放旧动作')
     .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（父目录须存在）')
-    .action(async (task: string, _options: unknown, command: Command) => {
+    .action(async (task: string | undefined, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
       const { runAgent } = await import('./run.js');
-      await runAgent(loaded, task, command.opts());
+      await runAgent(loaded, task ?? '', command.opts());
     });
+  program
+    .command('sessions')
+    .description('会话列表、元数据、检查点、压缩、结果、解锁与删除；不调用模型')
+    .argument('[action]', 'list / show / compact / result / unlock / delete', 'list')
+    .argument('[id]', '会话UUID')
+    .argument('[file]', 'result的输出文件名')
+    .option('--content', 'show显式输出脱敏历史正文')
+    .option('--checkpoint <sequence>', '查看指定历史检查点（需要--content）')
+    .action(
+      async (
+        action: string,
+        id: string | undefined,
+        file: string | undefined,
+        _options: unknown,
+        command: Command,
+      ) => {
+        const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+        const { manageSessions } = await import('./sessions.js');
+        await manageSessions(loaded, action, id, file, command.opts());
+      },
+    );
   program
     .command('tools')
     .description('列出六个内置工具与JSON Schema，不访问模型')

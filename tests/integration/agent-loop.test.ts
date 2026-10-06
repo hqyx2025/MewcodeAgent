@@ -349,7 +349,13 @@ describe('Agent Loop with real tools in a temporary project', () => {
     await iterator.next();
     await iterator.next();
     await expect(collect(agent)).rejects.toMatchObject({ code: 'BUSY' });
-    await expect(iterator.next()).rejects.toMatchObject({ code: 'MODEL_TIMEOUT' });
+    await expect(
+      (async () => {
+        while (!(await iterator.next()).done) {
+          /* Drain metadata before the waiting model. */
+        }
+      })(),
+    ).rejects.toMatchObject({ code: 'MODEL_TIMEOUT' });
     await expect(collect(agent, AbortSignal.abort())).rejects.toMatchObject({ code: 'CANCELLED' });
   });
 
