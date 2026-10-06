@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -31,5 +31,10 @@ jobs:
             choco install ripgrep --yes --no-progress
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Install ripgrep (macOS)
+        if: runner.os == 'macOS'
+        run: command -v rg || brew install ripgrep
       - run: npm run check
+      - run: npm run licenses:check
+      - run: npm run eval:release
       - run: npm run test:package

@@ -39,6 +39,19 @@ export function longHistory(turns = 100): LLMMessage[] {
   return messages;
 }
 describe('context budget and complete-group compaction', () => {
+  it('hashes omitted history while keeping bounded excerpts and complete recent groups', () => {
+    const history = longHistory();
+    const settings = { ...defaultContext, summaryBytes: 512 };
+    const first = compactHistory(history, settings)!;
+    history[181] = { ...history[181]!, content: 'late omitted evidence changed' };
+    const second = compactHistory(history, settings)!;
+    expect(first.archivedDigest).not.toBe(second.archivedDigest);
+    expect(Buffer.byteLength(second.messages[2]!.content)).toBeLessThanOrEqual(512);
+    expect(second.messages[2]!.content).toContain('turn-0');
+    expect(second.messages[2]!.content).not.toContain('late omitted evidence changed');
+    expect(second.messages.slice(-8)).toEqual(history.slice(-8));
+    expect(validateHistory(second.messages)).toEqual([]);
+  });
   it('merges only known context settings and validates window/output reserve', () => {
     const patch = configPatchSchema.parse({ context: { windowTokens: 8192, recentTurns: 2 } });
     const merged = mergeSettings(defaultSettings, patch);

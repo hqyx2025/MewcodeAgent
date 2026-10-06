@@ -13,6 +13,7 @@
   "files": [
     "dist",
     "README.md",
+    "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
   "repository": {
@@ -33,6 +34,11 @@
     "check:boundaries": "depcruise src --config .dependency-cruiser.cjs",
     "test": "vitest run",
     "test:package": "tsx scripts/smoke-package.ts",
+    "eval:release": "tsx scripts/evaluate-release.ts",
+    "licenses": "tsx scripts/license-report.ts",
+    "licenses:check": "tsx scripts/license-report.ts --check",
+    "prepack": "npm run build && npm run licenses:check",
+    "release:prepare": "npm run check && npm run licenses:check && npm run eval:release && npm run test:package",
     "bench:tools": "tsx scripts/benchmark-tools.ts",
     "bench:agent": "tsx scripts/benchmark-agent.ts",
     "bench:prompt": "tsx scripts/benchmark-prompt.ts",
@@ -46,6 +52,7 @@
     "bench:subagents": "tsx scripts/benchmark-subagents.ts",
     "bench:worktrees": "tsx scripts/benchmark-worktrees.ts",
     "bench:teams": "tsx scripts/benchmark-teams.ts",
+    "bench:ui": "tsx scripts/benchmark-ui.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:boundaries && npm test && npm run build"
   },

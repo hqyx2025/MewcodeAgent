@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M15 Agent Teams 已完成，Windows/Linux CI与独立安装包通过**，支持既有模块、归属 Git 工作树，以及持久成员、依赖任务看板、有界消息、累计预算和显式中断恢复。边界与实际检查结果见[M15规格](docs/modules/M15/spec.md)和[验收记录](docs/modules/M15/checklist.md)，下一模块为M16整体调优与发布。
+当前阶段：**M16 整体调优与发布准备验收中**，支持既有Agent与协作能力，新增固定离线评估、压缩调优、运行时依赖许可和安装升级/回滚说明。实际结果见[M16验收记录](docs/modules/M16/checklist.md)，发布边界见[安装与恢复指南](docs/modules/M16/release-guide.md)。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M15/spec.md)、[任务](docs/modules/M15/tasks.md)与[验收记录](docs/modules/M15/checklist.md)可直接查看；M01–M14 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M16/spec.md)、[任务](docs/modules/M16/tasks.md)与[验收记录](docs/modules/M16/checklist.md)可直接查看；M01–M15 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -222,6 +222,20 @@ npm run bench:teams
 每团队最多4成员、32生命周期任务、128消息，默认消息上限64。默认并发2、总预算60k、每任务40k、6轮/30秒；仍受可信 subagents 和 CLI 限制，默认每批最多8任务。相同成员串行，依赖失败标记blocked，批次上限留下queued供下一次明确run。完成任务不重放，成员身份与工作树交付跨run保存，每任务模型上下文独立；既有父权限、Hook与工具白名单继续生效。`--approve`只批准管理/运行，孩子shell仍需批准。
 
 `show`默认省略目标、上下文和消息正文，`--content`明确查看；结果摘要与观察证据会显示。`report`含diff、真实Bash检查和同名变更路径，需人工审阅合并。同主机原进程确定消失后才能recover/unlock；未知任务记为uncertain并保守消耗原预留预算，明确retry才可再执行。主仓库外的归属记录最多64团队、每条512KiB；没有后台成员进程或自动合并。[完整边界](docs/modules/M15/spec.md)。
+
+## 离线评估与发布准备
+
+```powershell
+npm run eval:release
+npm run licenses:check
+npm run bench:context
+npm run bench:ui
+npm run release:prepare
+```
+
+固定评估使用归属临时Git仓库、脚本化provider、真实文件/Shell/MCP与持久状态，覆盖bug修复、文件重构、100轮读取后恢复防重和两工作树修复。输出JSON包含实际断言、请求数、合成用量和平台；这不代表真实模型任务成功率或费用。CI分别执行Windows、Linux、macOS的完整检查、固定评估、许可核对和独立安装包。
+
+`release:prepare`验证本地待发布版本；`npm pack`会重新构建并核对随包[运行时依赖许可](THIRD_PARTY_NOTICES.md)。正式npm发布尚未执行。安装、保留旧包、升级/回滚、故障恢复和人工终端检查见[发布指南](docs/modules/M16/release-guide.md)，模块边界与取舍见[架构复盘](docs/modules/M16/architecture-review.md)。
 
 ## 模型执行任务
 

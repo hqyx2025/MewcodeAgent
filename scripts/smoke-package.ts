@@ -36,6 +36,8 @@ try {
     files: { path: string; size: number }[];
   }[];
   assert(archive);
+  assert(archive.files.some((file) => file.path === 'THIRD_PARTY_NOTICES.md'));
+  assert(!archive.files.some((file) => /(^|\/)(?:\.env(?:\..*)?|config\.ya?ml)$/.test(file.path)));
   await exec(
     process.execPath,
     [
@@ -52,6 +54,14 @@ try {
     { cwd: temporary, env, timeout: 120_000 },
   );
   const entry = join(installation, 'node_modules', metadata.name, 'dist', 'index.js');
+  assert(
+    (
+      await readFile(
+        join(installation, 'node_modules', metadata.name, 'THIRD_PARTY_NOTICES.md'),
+        'utf8',
+      )
+    ).includes('Third-party runtime dependency notices'),
+  );
   const run = (args: string[]) =>
     exec(process.execPath, [entry, ...args], { cwd: installation, env, timeout: 10_000 });
   const version = (await run(['--version'])).stdout.trim();
@@ -547,6 +557,7 @@ registerHooks({
       {
         version,
         installation: 'passed (Unicode/space path, production dependencies only)',
+        notices: 'passed (production dependency notices packaged; private config files absent)',
         bin: 'passed',
         configuration: 'passed',
         demo: 'passed',

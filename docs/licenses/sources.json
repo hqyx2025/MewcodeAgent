@@ -1,0 +1,14 @@
+{
+  "yoga-layout": {
+    "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85",
+    "version": "3.2.1",
+    "source": "https://github.com/react/yoga/blob/042f5013152eb81c1552dec945b88f7b95ca350f/LICENSE",
+    "file": "yoga-layout-LICENSE.txt"
+  },
+  "standardwebhooks": {
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "version": "1.1.1",
+    "source": "https://github.com/standard-webhooks/standard-webhooks/blob/b4d2c14fc5b4ccff3ff271e3b087dff812254c59/LICENSE",
+    "file": "standardwebhooks-LICENSE.txt"
+  }
+}
