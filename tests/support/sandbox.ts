@@ -19,5 +19,7 @@ export async function removeSandbox(root: string): Promise<void> {
   if (!resolve(root).startsWith(resolve(join(tmpdir(), 'mewcode-m01-')))) {
     throw new Error('Refusing to remove a path outside the test sandbox');
   }
-  await rm(root, { recursive: true, force: true });
+  // Windows may release cwd handles just after a terminated process exits.
+  // Retry only this owned sandbox; persistent locks still fail the test.
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
