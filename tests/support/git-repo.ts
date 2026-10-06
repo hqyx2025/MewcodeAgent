@@ -30,6 +30,8 @@ export async function createGitSandbox() {
       },
     );
   await git(['init', '-b', 'main']);
+  // Persist fixture policy: manager Git subprocesses must not inherit runner autocrlf.
+  await git(['config', 'core.autocrlf', 'false']);
   await git(['config', 'user.name', 'Fixture']);
   await git(['config', 'user.email', 'fixture@example.invalid']);
   await writeFile(join(box.cwd, 'same.txt'), 'base\n');
