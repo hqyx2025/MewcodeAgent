@@ -34,6 +34,8 @@ export async function approveTool(request: ApprovalRequest, signal: AbortSignal)
     ),
   );
   const reader = createInterface({ input: process.stdin, output: process.stderr });
+  // readline handles Ctrl+C itself while it owns the terminal input.
+  reader.once('SIGINT', () => process.emit('SIGINT'));
   try {
     return /^(y|yes)$/i.test((await reader.question('允许本次操作？[y/N] ', { signal })).trim());
   } catch {

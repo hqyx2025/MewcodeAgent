@@ -13,11 +13,11 @@
 | Plan 权限 | 通过 | 只暴露 ReadFile/Glob/Grep；执行器仍拒绝 WriteFile |
 | 预算、取消、超时、并发 | 通过 | 轮数/token/上下文/事件上限及已提交写入保留 |
 | 安装后离线 run | 通过 | `scripts/smoke-package.ts` JSONL Plan 演示 |
-| TTY逐调用审批 | 通过 | 真实PTY运行临时项目CLI，展示完整WriteFile参数，输入y后确认创建内容 |
+| TTY逐调用审批与取消 | 通过 | 真实PTY运行临时项目CLI：输入y后确认创建；审批等待时Ctrl+C以130退出且未写入 |
 
-`npm run check` 通过：15 个测试文件，146 个场景通过、1 个 POSIX 场景在 Windows 跳过，共147个场景（M04新增32个）；类型、lint、格式、模块边界及构建均通过。测试总耗时6.78秒、构建202毫秒。
+`npm run check` 通过：15 个测试文件，146 个场景通过、1 个 POSIX 场景在 Windows 跳过，共147个场景（M04新增32个）；类型、lint、格式、模块边界及构建均通过。测试总耗时6.87秒、构建203毫秒。
 
-`npm run test:package` 通过：仅安装生产依赖的中文/空格目录，help/version 不加载 SDK/UI，Mock Plan Agent JSONL 闭环通过。安装包98,507字节，编译JS共117,641字节，help七次样本中位数67.92毫秒。本轮 npm install 审计0漏洞。
+`npm run test:package` 通过：仅安装生产依赖的中文/空格目录，help/version 不加载 SDK/UI，Mock Plan Agent JSONL 闭环通过。安装包98,601字节，编译JS共117,696字节，help七次样本中位数60.47毫秒。本轮 npm install 审计0漏洞。
 
 ## 真实服务验证
 

@@ -28,7 +28,7 @@
 ## 演示
 
 ```powershell
-npm run dev -- --provider mock --mode plan run "查看项目入口" --json
+npm run dev -- --provider mock --model mock-v1 --mode plan run "查看项目入口" --json
 npm run agent -- "修复一个小 bug 并运行测试"
 ```
 
