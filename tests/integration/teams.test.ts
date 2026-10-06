@@ -439,7 +439,9 @@ describe('persistent agent teams', () => {
     expect(retried.state.usedTokens).toBe(600);
     expect(retried.state.tasks[0]!.attempt).toBe(2);
     await expect(store.retry(team.id, 'one')).rejects.toMatchObject({ code: 'TEAM_RETRY' });
-  });
+    // Three real Git-bound task executions, including recovery of earlier edits.
+    // Allow the same cold/shared-runner budget as the longer dependency fixture.
+  }, 30_000);
   it('propagates coordinator cancellation and enforces Plan and parent deny', async () => {
     const team = await store.create(
       definition([task('one'), task('two', 'bob', ['one'])]),
