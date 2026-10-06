@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M14 Worktree 已实现，最终验收中**，支持既有流式对话、编程工具、Agent Loop、指令、权限、MCP、会话、记忆、命令、Skill、Hook、只读子任务，以及归属 Git 工作树和隔离写入子任务。边界与检查结果见[M14规格](docs/modules/M14/spec.md)和[验收记录](docs/modules/M14/checklist.md)，下一模块为M15 Agent Teams。
+当前阶段：**M14 Worktree 已完成，Windows/Linux CI与独立安装包通过**，支持既有流式对话、编程工具、Agent Loop、指令、权限、MCP、会话、记忆、命令、Skill、Hook、只读子任务，以及归属 Git 工作树和隔离写入子任务。边界与检查结果见[M14规格](docs/modules/M14/spec.md)和[验收记录](docs/modules/M14/checklist.md)，下一模块为M15 Agent Teams。
 
 ## 先阅读这些文档
 

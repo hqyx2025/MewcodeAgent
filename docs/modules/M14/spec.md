@@ -1,6 +1,6 @@
 # M14：Git Worktree 与隔离写入子任务
 
-状态：本地完整检查、安装包和基准通过，远端CI待核对。沿用 TypeScript 5、Node.js 24、ESM、npm；依赖以锁文件为准。本模块独立实现公开课程目录中的 Worktree 主题。
+状态：本地完整检查、安装包、基准与Windows/Linux CI通过。沿用 TypeScript 5、Node.js 24、ESM、npm；依赖以锁文件为准。本模块独立实现公开课程目录中的 Worktree 主题。
 
 ## 目标和入口
 

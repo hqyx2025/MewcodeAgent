@@ -1,6 +1,6 @@
 # M14 验收记录
 
-状态：本地完整检查、独立安装包与基准通过；远端CI待核对。
+状态：本地完整检查、独立安装包、基准与Windows/Linux CI通过。
 
 ## 行为和边界
 
@@ -22,8 +22,8 @@
 - [x] npm run check：47文件，412通过/2平台跳过，共414；100模块/480依赖，无循环或违规导入；类型/lint/格式/构建通过。
 - [x] npm run test:package：独立生产依赖安装、中文路径，实际创建两工作树、离线隔离写入、脏目录拒绝回收、审阅fixture提交后正常回收且保留分支；既有模块回归通过。
 - [x] help/version仍不加载重依赖；help七次中位数39.14ms，编译JS合计422584 bytes，当次包334361 bytes（后续README文档更新会改变包大小）。
-- [ ] Windows/Linux CI（运行后填写链接与真实测试计数）。
-- 首轮CI：Ubuntu的check与test:package通过（411通过/3跳过）；Windows因runner的Git autocrlf影响临时fixture换行而出现4项断言失败。已在fixture仓库明确设置core.autocrlf=false，待修正后的两平台运行。
+- [x] [Windows/Linux CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37459410556)通过，验证提交 `97419ccb57883d7a4639957b630e4212ac3b133d`（功能提交 `55afd479c1ca3dc58f03eb8501ea31385f88bfff`）。两平台Node v24.21.0、npm11.19.0；Windows为47文件、412通过/2平台跳过，Ubuntu为47文件、411通过/3平台跳过，共414；两平台check与test:package均成功。后续提交仅同步验收文档，不改变已验证代码。
+- 测试fixture在临时仓库固定core.autocrlf=false，不依赖runner全局换行设置。
 - [x] npm run bench:worktrees。
 
 ## 测量条件和限制
