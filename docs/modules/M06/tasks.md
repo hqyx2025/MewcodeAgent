@@ -8,5 +8,5 @@
 - [x] 实际行为/错误/边界测试与完整检查。
 - [x] 测量权限决策与授权复用，按结果调优。
 - [x] 文档更新。
-- [ ] 推送。
-- [ ] Windows/Linux CI验收。
+- [x] 推送（代码提交`3fd6f4c`）。
+- [x] Windows/Linux CI验收：两个平台的完整检查与安装包均通过，见[运行记录](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37412157568)。

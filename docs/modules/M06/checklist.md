@@ -41,7 +41,7 @@
 
 ## 已知边界
 
-仅实际验证Windows本地；Windows/Linux CI待本次推送核对，不宣称macOS已验证。真实模型任务成功率、成本、多人并发与OS沙箱未测量。
+代码提交`3fd6f4c1d2e6057dbdc92797805379cab638046f`已推送到main；[CI运行37412157568](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37412157568)整体success，ubuntu-latest与windows-latest的`npm run check`和`npm run test:package`均通过。该结论来自本次实际GitHub Actions，不宣称macOS已验证。真实模型任务成功率、成本、多人并发与OS沙箱未测量。
 
 人批准的shell仍具有当前用户的主机权限；文件范围、cwd和命令审批不是OS沙箱。文件路径复查不保证抵御任意主机并发攻击者的所有目录置换竞态。永久规则需明确编辑配置；scope只支持字面路径，受限子目录与递归查询相交时保守拒绝/审批，不自动排除它继续搜索。
 
