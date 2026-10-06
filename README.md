@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M11 Skill 系统实现与本地完整检查通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆、命令和按需技能/资源读取。M11 的边界见 [规格](docs/modules/M11/spec.md) 与[验收记录](docs/modules/M11/checklist.md)，下一模块为M12 Hook 系统。
+当前阶段：**M11 Skill 系统已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆、命令和按需技能/资源读取。M11 的边界见 [规格](docs/modules/M11/spec.md) 与[验收记录](docs/modules/M11/checklist.md)，下一模块为M12 Hook 系统。
 
 ## 先阅读这些文档
 

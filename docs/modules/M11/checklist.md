@@ -16,8 +16,8 @@
 - [x] 每轮来源记录、chat显式选择UI、CLI本地命令无需模型key，prompt默认不输出正文。
 - [x] 压缩保留当前技能，持久恢复重新加载当前正文，不重放已完成工具。
 - [x] `npm run check`：37文件、317通过/1平台跳过，共318；83模块/359依赖边界通过，类型/lint/格式/构建成功。
-- [x] `npm run test:package`：Unicode/空格路径、仅生产依赖的独立安装通过；技能列表不含正文、显式选择、prompt元数据不含正文、中文资源读取成功。帮助入口保持不加载配置/SDK/UI依赖。最终本地压缩包255,241bytes、编译JS共315,051bytes，帮助7次采样中位数39.27ms。
-- [ ] 推送提交和Windows/Linux CI实际链接与计数待记录。
+- [x] `npm run test:package`：Unicode/空格路径、仅生产依赖的独立安装通过；技能列表不含正文、显式选择、prompt元数据不含正文、中文资源读取成功。帮助入口保持不加载配置/SDK/UI依赖。最终代码本地产物压缩包254,753bytes、编译JS共315,501bytes，帮助7次采样中位数38.81ms。
+- [x] 最终[Windows/Linux CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37438807186)通过，验证代码提交 `9454c4b1de3005d6867cd1993660cf9d156de7f2`。两平台Node v24.21.0；Windows为37文件、317通过/1跳过，Ubuntu为37文件、315通过/3跳过，共318。新增Windows短文件名回归在Windows实际通过，在Linux按平台跳过；两平台 `npm run check` 和 `npm run test:package` 均成功。后续验收文档提交不改变已验证代码。
 
 `npm run bench:skills`：固定100个技能文件和100个资源文件，7次索引/选择采样，正文每份9,618bytes；选择Redis相关2份，资源内容读取0份。全部正文961,800bytes，注入记录JSON 19,771bytes，约2.06%，保守字节/token估算19,771；未选正文942,564bytes没有全量加载或注入，头部前缀读取可能含部分正文。索引前缀上限409,600bytes，元数据JSON 13,595bytes；本地索引重建中位数118.683ms，选择/读取中位数2.707ms，额外模型调用0。
 
