@@ -7,12 +7,59 @@ import { terminalText } from '../shared/terminal-text.js';
 import { createBuiltinRegistry } from '../tools/builtins.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { ApprovalRequest } from '../tools/types.js';
+import { MockProvider } from '../providers/mock.js';
+import type { PromptManifest } from '../core/prompt.js';
 
 export interface RunCLIOptions {
   json?: boolean;
   maxTurns?: string;
   maxTotalTokens?: string;
   timeoutMs?: string;
+}
+
+function sensitiveValues(loaded: LoadedConfiguration): string[] {
+  const name =
+    loaded.settings.provider.apiKeyEnv ??
+    (loaded.settings.provider.kind === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  const value = process.env[name]?.trim();
+  return value ? [value] : [];
+}
+
+function printPrompt(manifest: PromptManifest, shownWarnings: Set<string>): void {
+  if (manifest.sources.length)
+    process.stderr.write(
+      terminalText(
+        `项目指令来源：${manifest.sources.map((source) => `${source.path} [scope=${source.scope}${source.truncated ? ', truncated' : ''}]`).join('，')}\n`,
+      ),
+    );
+  for (const warning of manifest.warnings) {
+    const key = `${warning.path}:${warning.code}`;
+    if (shownWarnings.has(key)) continue;
+    shownWarnings.add(key);
+    process.stderr.write(
+      terminalText(`指令警告 ${warning.code}：${warning.path}；${warning.message}\n`),
+    );
+  }
+}
+
+export async function inspectPrompt(loaded: LoadedConfiguration, json: boolean): Promise<void> {
+  const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+    root: loaded.cwd,
+    mode: loaded.settings.mode,
+  });
+  const manifest = await new AgentLoop(new MockProvider({ delayMs: 0 }), executor, {
+    model: loaded.settings.provider.model,
+    mode: loaded.settings.mode,
+    ...loaded.settings.limits,
+    sensitiveValues: sensitiveValues(loaded),
+  }).inspectPrompt(AbortSignal.timeout(loaded.settings.limits.timeoutMs));
+  if (json) process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
+  else
+    process.stdout.write(
+      terminalText(
+        `系统提示 ${manifest.version}：${manifest.characters} 字符，估算 ${manifest.estimatedTokens} token。\n提示段：${manifest.sections.map((section) => section.id).join(' → ')}\n模式：${manifest.environment.mode}；Shell：${manifest.environment.shell.kind}\n项目指令：${manifest.sources.map((source) => `${source.path} [scope=${source.scope}]`).join('，') || '无'}\n${manifest.warnings.map((warning) => `警告 ${warning.code}：${warning.path}；${warning.message}`).join('\n')}\n`,
+      ),
+    );
 }
 
 function positive(value: string | undefined, fallback: number, max: number): number {
@@ -67,13 +114,16 @@ export async function runAgent(
     timeoutMs,
     maxOutputTokens: loaded.settings.limits.maxOutputTokens,
     maxTotalTokens,
+    sensitiveValues: sensitiveValues(loaded),
   });
   const controller = new AbortController();
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
+  const shownWarnings = new Set<string>();
   try {
     for await (const event of agent.run(task, controller.signal)) {
       if (options.json) process.stdout.write(`${JSON.stringify(event)}\n`);
+      else if (event.type === 'prompt_info') printPrompt(event.manifest, shownWarnings);
       else if (event.type === 'text_delta') process.stdout.write(terminalText(event.text));
       else if (event.type === 'tool_start')
         process.stderr.write(terminalText(`\n调用 ${event.name} (${event.callId})\n`));

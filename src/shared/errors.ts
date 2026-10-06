@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'MODEL_UNSUPPORTED'
   | 'INVALID_PROMPT'
   | 'CONTEXT_LIMIT'
+  | 'INSTRUCTIONS_LIMIT'
   | 'BUSY';
 
 export class AppError extends Error {

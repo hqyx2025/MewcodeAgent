@@ -95,6 +95,14 @@ registerHooks({
     .map((line) => JSON.parse(line) as { type: string; reason?: string });
   assert(agentEvents.some((event) => event.type === 'tool_result'));
   assert.equal(agentEvents.at(-1)?.reason, 'completed');
+  await writeFile(join(installation, 'AGENTS.md'), 'package-guidance-must-not-print');
+  const promptMetadata = JSON.parse((await run(['--mode', 'plan', 'prompt', '--json'])).stdout) as {
+    version: string;
+    sources: { path: string }[];
+  };
+  assert.equal(promptMetadata.version, 'm05-v1');
+  assert.equal(promptMetadata.sources[0]?.path, 'AGENTS.md');
+  assert(!JSON.stringify(promptMetadata).includes('package-guidance-must-not-print'));
   assert.equal((JSON.parse((await run(['tools'])).stdout) as unknown[]).length, 6);
   await writeFile(join(installation, '工具文件.txt'), '安装后的工具 🐈');
   const readTool = JSON.parse(
@@ -147,6 +155,7 @@ registerHooks({
         demo: 'passed',
         tools: 'passed (schemas, read, approved write)',
         agent: 'passed (offline Plan tool loop, JSONL)',
+        prompt: 'passed (instruction metadata without source text)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

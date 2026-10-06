@@ -119,6 +119,15 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('prompt')
+    .description('查看系统提示分段、环境与根指令来源元数据，不调用模型或输出正文')
+    .option('--json', '输出JSON元数据')
+    .action(async (_options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { inspectPrompt } = await import('./run.js');
+      await inspectPrompt(loaded, command.opts<{ json?: boolean }>().json ?? false);
+    });
+  program
     .command('run')
     .description('执行有界 Agent 任务；逐次审批文件修改与命令，Plan只读')
     .argument('<task>', '编程任务')

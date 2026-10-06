@@ -61,6 +61,29 @@ describe('Agent CLI', () => {
     expect(events.find((e) => e.type === 'tool_result')?.result?.ok).toBe(true);
     expect(result.stderr).toBe('');
   });
+
+  it('inspects prompt metadata without model credentials or leaking project text', async () => {
+    await writeFile(
+      join(box.projectDirectory, 'config.yaml'),
+      'provider:\n  kind: anthropic\n  model: fixture-model\n  apiKeyEnv: MEW_TEST_API_KEY\n',
+    );
+    await writeFile(join(box.cwd, 'AGENTS.md'), `private-guidance-marker ${env.MEW_TEST_API_KEY}`);
+    const result = await cli(['--mode', 'plan', 'prompt', '--json']);
+    const metadata = JSON.parse(result.stdout) as {
+      version: string;
+      environment: { tools: { name: string }[] };
+      sources: { path: string; redacted: boolean }[];
+      warnings: { code: string }[];
+    };
+    expect(metadata.version).toBe('m05-v1');
+    expect(metadata.environment.tools.map((t) => t.name)).toEqual(['ReadFile', 'Glob', 'Grep']);
+    expect(metadata.sources).toMatchObject([{ path: 'AGENTS.md', redacted: true }]);
+    expect(metadata.warnings).toMatchObject([{ code: 'REDACTED' }]);
+    expect(result.stdout + result.stderr).not.toContain('private-guidance-marker');
+    expect(result.stdout + result.stderr).not.toContain(env.MEW_TEST_API_KEY);
+    delete env.MEW_TEST_API_KEY;
+    expect((await cli(['prompt'])).stdout).toContain('AGENTS.md');
+  });
   it.each(['write', 'shell'])('refuses non-TTY %s approvals through the executor', async (kind) => {
     server = await modelServer((res, _record, count) =>
       sse(res, [

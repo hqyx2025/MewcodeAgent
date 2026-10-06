@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M01–M04 已完成**，支持流式对话、六个编程工具、基础权限入口与有界 Agent Loop。下一模块 M05 将完善系统提示与项目指令。
+当前阶段：**M01–M05 已完成**，支持流式对话、六个编程工具、有界 Agent Loop、分段系统提示与项目指令。下一模块 M06 将完善权限系统。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M04/spec.md)、[任务](docs/modules/M04/tasks.md)与[验收记录](docs/modules/M04/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M05/spec.md)、[任务](docs/modules/M05/tasks.md)与[验收记录](docs/modules/M05/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
 
 ## 本地运行
 
@@ -59,6 +59,21 @@ npm run agent -- "修复一个小 bug 并运行测试"
 `run` 支持 `--max-turns`（默认配置 20）、`--max-total-tokens`（默认 200000）、`--timeout-ms`（默认配置 120000）。连续三次工具失败停止；损坏/截断分片不执行工具；取消保留已完成的修改。token 使用服务报告或明确标记的估算，不能视为精确费用上限。
 
 `--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。当前工具串行执行、上下文有界，不持久化或自动恢复任务。
+
+## 系统提示与项目指令
+
+```powershell
+npm run dev -- --mode plan prompt
+npm run dev -- --mode plan prompt --json
+```
+
+`prompt` 查看提示段、实际环境/预算和根指令来源元数据，无需密钥、不调用模型、不输出项目指令正文。`run --json` 的 `prompt_info` 事件记录初始提示和按需更新的来源。
+
+启动只在 `--cwd` 项目根检查 `AGENTS.md`，缺失时兼容 `CLAUDE.md`；同目录空或无效AGENTS也不切换到CLAUDE。访问内置文件工具的路径、Grep路径、Bash cwd或Glob静态前缀时，沿目标目录祖先按需发现子目录指令。较深层项目约定只适用于其目录；运行时权限和用户任务优先。不会自动读取父目录、home或递归扫描整个项目。
+
+首次发现新子目录指令或读取警告时，当前整批工具返回 `INSTRUCTIONS_UPDATED` 且不执行。下一轮模型看到新提示后重新计划，需使用新的callId；这会占用模型轮数，但不计连续工具失败。
+
+指令在一次任务内缓存快照，新任务重新读取。拒绝链接、非普通文件和越界路径；单文件注入最多16KiB、总计32KiB，截断/坏编码/脱敏有来源警告。发现最多32层、128个目录，超限停止。项目文件里的授权声明不能改变工具权限。详见[M05规格](docs/modules/M05/spec.md)。
 
 ## 明确调用编程工具
 
@@ -124,6 +139,7 @@ npm run check
 npm run test:package
 npm run bench:tools
 npm run bench:agent
+npm run bench:prompt
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。
