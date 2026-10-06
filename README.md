@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M15 Agent Teams 已实现，正在完成验收**，支持既有模块、归属 Git 工作树，以及持久成员、依赖任务看板、有界消息、累计预算和显式中断恢复。边界与实际检查结果见[M15规格](docs/modules/M15/spec.md)和[验收记录](docs/modules/M15/checklist.md)，下一模块为M16整体调优与发布。
+当前阶段：**M15 Agent Teams 已完成，Windows/Linux CI与独立安装包通过**，支持既有模块、归属 Git 工作树，以及持久成员、依赖任务看板、有界消息、累计预算和显式中断恢复。边界与实际检查结果见[M15规格](docs/modules/M15/spec.md)和[验收记录](docs/modules/M15/checklist.md)，下一模块为M16整体调优与发布。
 
 ## 先阅读这些文档
 
