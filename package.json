@@ -42,6 +42,7 @@
     "bench:memory": "tsx scripts/benchmark-memory.ts",
     "bench:commands": "tsx scripts/benchmark-commands.ts",
     "bench:skills": "tsx scripts/benchmark-skills.ts",
+    "bench:hooks": "tsx scripts/benchmark-hooks.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:boundaries && npm test && npm run build"
   },

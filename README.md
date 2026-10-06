@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M11 Skill 系统已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆、命令和按需技能/资源读取。M11 的边界见 [规格](docs/modules/M11/spec.md) 与[验收记录](docs/modules/M11/checklist.md)，下一模块为M12 Hook 系统。
+当前阶段：**M12 Hook 系统已实现，本地验收与独立安装包通过，Windows/Linux CI待核对**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源与生命周期Hook。M12 的边界见[规格](docs/modules/M12/spec.md)与[验收记录](docs/modules/M12/checklist.md)，下一模块为M13 SubAgent。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M11/spec.md)、[任务](docs/modules/M11/tasks.md)与[验收记录](docs/modules/M11/checklist.md)可直接查看；M01–M10 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M12/spec.md)、[任务](docs/modules/M12/tasks.md)与[验收记录](docs/modules/M12/checklist.md)可直接查看；M01–M11 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -95,6 +95,34 @@ npm run chat -- "/skill code-review 解释边界测试方法"
 不指定技能时按名称/描述做本地词项匹配，最多选2个；显式名单最多4个。启动只保存元数据，选中后才读取正文；资源不自动读取。`/skills refresh` 更新索引，`/skill <name> <task>` 为本轮明确选择。每轮记录名称、来源与选择原因，提示元数据不输出正文。
 
 Agent的 `SkillRead` 只能读取本轮选中技能目录内的有界文本资源；附带脚本需要另走完整Bash命令审批，Plan禁止执行。chat只提供建议，不读取资源或执行脚本。技能不能提升权限或授权MCP，Skill提供方法和本地资源，MCP提供需审批的外部服务能力。[格式、限额、匹配和恢复边界](docs/modules/M11/spec.md)。
+
+## 生命周期 Hook
+
+在用户或项目配置中增加 `hooks`；数组按来源顺序追加，id不能重复。脚本路径基于项目根，示例：
+
+```yaml
+hooks:
+  - id: protect-locks
+    event: PreToolUse
+    tool: WriteFile
+    script: .mewcode/hooks/protect-locks.mjs
+    timeoutMs: 5000
+    env: []
+```
+
+对应 `.mewcode/hooks/protect-locks.mjs`：
+
+```js
+let text = '';
+for await (const part of process.stdin) text += part;
+const event = JSON.parse(text);
+const blocked = event.tool.input.path.endsWith('.lock');
+process.stdout.write(JSON.stringify({ decision: blocked ? 'block' : 'continue' }));
+```
+
+`npm run dev -- hooks` 只查看配置；`run` 触发SessionStart、PreToolUse、PostToolUse、Stop、SessionEnd，独立 `tool` 与 `mcp` 调用触发工具事件。脚本执行需要shell审批，Plan禁止；chat和prompt不会执行Hook脚本。只接受结构化JSON，PreToolUse可通过 `updatedInput` 替换整个输入，随后重新校验和授权；安全事件失败阻止动作，通知失败保留工具实际结果。`run --json` 可查看脱敏Hook审计，`--audit-file`可保存JSONL，`npm run bench:hooks`测量本地延迟。
+
+脚本作为已批准的Node ESM快照执行，支持node:内置模块；相对/包名导入不可用，需要绝对file URL。环境变量只显式引用名称，不能在配置内填写密钥值。[完整协议、限额、取消和恢复边界](docs/modules/M12/spec.md)。
 
 ## 模型执行任务
 

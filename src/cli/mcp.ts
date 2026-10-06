@@ -7,6 +7,8 @@ import { AppError } from '../shared/errors.js';
 import { terminalText } from '../shared/terminal-text.js';
 import { permissionRuntime } from './permissions.js';
 import { approveTool } from './run.js';
+import { hookRuntime } from './hooks.js';
+import { referencedValues } from '../mcp/config.js';
 
 export function listMCP(loaded: LoadedConfiguration): void {
   process.stdout.write(
@@ -67,7 +69,14 @@ export async function runMCP(
     } catch {
       throw new AppError('CONFIG_INVALID', 'MCP input 必须是有效 JSON。');
     }
+    const hooks = hookRuntime(
+      loaded,
+      registry,
+      runtime.hookAudit,
+      referencedValues(selected, process.env),
+    );
     const executor = await ToolExecutor.create(registry, {
+      ...(loaded.settings.hooks.length ? { hooks: hooks.handle } : {}),
       root: loaded.cwd,
       mode: loaded.settings.mode,
       rules: runtime.rules,

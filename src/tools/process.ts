@@ -51,16 +51,21 @@ export async function runProcess(options: {
   signal: AbortSignal;
   timeoutMs: number;
   maxBytes?: number;
+  stdin?: string;
+  env?: NodeJS.ProcessEnv;
 }): Promise<ProcessOutput> {
   checkCancelled(options.signal);
   return new Promise((resolve, reject) => {
     const child = spawn(options.executable, options.args, {
       cwd: options.cwd,
-      env: processEnvironment(),
-      stdio: ['ignore', 'pipe', 'pipe'],
+      env: options.env ?? processEnvironment(),
+      stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       windowsHide: true,
       detached: process.platform !== 'win32',
     });
+    // EPIPE is possible when a child exits before consuming its bounded input.
+    child.stdin?.on('error', () => {});
+    child.stdin?.end(options.stdin);
     let reason: 'cancel' | 'timeout' | 'limit' | undefined;
     let killed: Promise<void> | undefined;
     let bytes = 0;
@@ -121,8 +126,8 @@ export async function runProcess(options: {
       else stderr += text;
       if (portion.length < chunk.length) stop('limit');
     };
-    child.stdout.on('data', (chunk: Buffer) => consume(chunk, outDecoder, 'stdout'));
-    child.stderr.on('data', (chunk: Buffer) => consume(chunk, errDecoder, 'stderr'));
+    child.stdout!.on('data', (chunk: Buffer) => consume(chunk, outDecoder, 'stdout'));
+    child.stderr!.on('data', (chunk: Buffer) => consume(chunk, errDecoder, 'stderr'));
     child.once('error', () => {
       clearTimeout(timer);
       options.signal.removeEventListener('abort', abort);

@@ -9,6 +9,7 @@ import type { LoadedConfiguration } from '../config/load.js';
 import type { ToolContext } from '../tools/types.js';
 import { permissionRuntime } from './permissions.js';
 import { memoryProtection } from './memory-runtime.js';
+import { hookRuntime } from './hooks.js';
 
 export interface ToolCLIOptions {
   input?: string;
@@ -81,7 +82,10 @@ export async function runTool(
   }
   const runtime = await permissionRuntime(loaded, options.auditFile);
   try {
-    const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+    const registry = createBuiltinRegistry();
+    const hooks = hookRuntime(loaded, registry, runtime.hookAudit);
+    const executor = await ToolExecutor.create(registry, {
+      ...(loaded.settings.hooks.length ? { hooks: hooks.handle } : {}),
       root: loaded.cwd,
       mode: loaded.settings.mode,
       timeoutMs: loaded.settings.limits.timeoutMs,
@@ -109,7 +113,9 @@ export async function runTool(
         { callId: randomUUID(), name, input },
         controller.signal,
       );
-      process.stdout.write(`${JSON.stringify({ ...result, audit: executor.auditLog }, null, 2)}\n`);
+      process.stdout.write(
+        `${JSON.stringify({ ...result, audit: executor.auditLog, hooks: hooks.auditLog }, null, 2)}\n`,
+      );
       if (!result.ok) process.exitCode = result.error?.code === 'CANCELLED' ? 130 : 1;
     } finally {
       process.removeListener('SIGINT', cancel);

@@ -121,6 +121,14 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('hooks')
+    .description('查看有效Hook配置和执行边界，不执行脚本或调用模型')
+    .action(async (_options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { inspectHooks } = await import('./hooks.js');
+      inspectHooks(loaded);
+    });
+  program
     .command('skills')
     .description('查看技能元数据、匹配、显式正文或受限资源，不调用模型')
     .argument('[action]', 'list/show/match/resource', 'list')

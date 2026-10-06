@@ -167,6 +167,38 @@ registerHooks({
   ) as { ok: boolean };
   assert(writtenTool.ok);
 
+  const hookConfig = join(installation, 'hook-config.json');
+  await writeFile(
+    hookConfig,
+    JSON.stringify({
+      hooks: [{ id: 'installed', event: 'PreToolUse', script: '中文 Hook.mjs', tool: 'ReadFile' }],
+    }),
+  );
+  await writeFile(
+    join(installation, '中文 Hook.mjs'),
+    'console.log(JSON.stringify({decision:"continue"}));',
+  );
+  assert.equal(
+    JSON.parse((await run(['--config', hookConfig, 'hooks'])).stdout).hooks[0].id,
+    'installed',
+  );
+  const hookedTool = JSON.parse(
+    (
+      await run([
+        '--config',
+        hookConfig,
+        'tool',
+        'ReadFile',
+        '--approve',
+        '--input',
+        JSON.stringify({ path: '工具文件.txt' }),
+      ])
+    ).stdout,
+  );
+  assert(hookedTool.ok && hookedTool.content.includes('安装后的工具'));
+  assert.equal(hookedTool.hooks.length, 1);
+  assert(hookedTool.audit.some((record: { name: string }) => record.name === 'HookScript'));
+
   const mcpFixture = join(installation, 'mock-mcp.mjs');
   await writeFile(mcpFixture, await readFile(join(repo, 'tests', 'support', 'mcp-server.mjs')));
   const mcpConfig = join(installation, 'mcp-config.json');
@@ -323,6 +355,7 @@ registerHooks({
         helpMinMs: Number(timings[0]?.toFixed(2)),
         helpMaxMs: Number(timings[6]?.toFixed(2)),
         packageBytes: archive.size,
+        hooks: 'passed (inert inspection, approved Node snapshot, Unicode source path, hook audit)',
         unpackedBytes: archive.unpackedSize,
         demoTotalMs: Number(demoTotalMs.toFixed(2)),
         entryBytes: (await stat(entry)).size,

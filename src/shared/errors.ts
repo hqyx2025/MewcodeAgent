@@ -27,6 +27,7 @@ export type ErrorCode =
   | 'COMMAND_IO'
   | 'SKILL_INVALID'
   | 'SKILL_LIMIT'
+  | 'HOOK_FAILED'
   | 'BUSY';
 
 export class AppError extends Error {

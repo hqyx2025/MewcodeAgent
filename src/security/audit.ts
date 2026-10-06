@@ -4,6 +4,7 @@ import type { FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, parse, relative, resolve, sep } from 'node:path';
 import { ToolError } from '../tools/errors.js';
 import type { ToolEffect, ToolMode } from '../tools/types.js';
+import type { HookAudit } from '../tools/hook-types.js';
 
 export interface PermissionAudit {
   version: 1;
@@ -55,12 +56,12 @@ export class AuditFile {
     }
   }
 
-  write(record: Readonly<PermissionAudit>): Promise<void> {
+  write(record: Readonly<PermissionAudit | HookAudit>): Promise<void> {
     this.pending = this.pending.then(() => this.append(record));
     return this.pending;
   }
 
-  private async append(record: Readonly<PermissionAudit>): Promise<void> {
+  private async append(record: Readonly<PermissionAudit | HookAudit>): Promise<void> {
     try {
       await this.handle.writeFile(JSON.stringify(record) + '\n', 'utf8');
       await this.handle.sync();

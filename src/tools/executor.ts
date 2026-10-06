@@ -8,6 +8,8 @@ import { permissionRuleSchema } from '../security/rules.js';
 import type { PermissionAudit } from '../security/audit.js';
 import { ProjectPaths } from '../security/paths.js';
 import { checkCancelled, ToolError } from './errors.js';
+import type { HookHandler, HookEvent } from './hook-types.js';
+import type { HookEventName } from './hook-schema.js';
 import type { ToolRegistry } from './registry.js';
 import type {
   ApprovalAnswer,
@@ -19,6 +21,7 @@ import type {
 } from './types.js';
 
 export interface ExecutorOptions {
+  hooks?: HookHandler;
   root: string;
   mode?: ToolMode;
   timeoutMs?: number;
@@ -40,6 +43,8 @@ export class ToolExecutor {
   private parent?: ToolExecutor;
   private policyEpoch = 0;
   private readonly executorId = randomUUID();
+  private hookQueue: Promise<void> = Promise.resolve();
+  private queuedHooks = 0;
 
   private lineage(): string {
     return `${this.parent?.lineage() ?? ''}/${this.mode}:${this.policyEpoch}`;
@@ -72,7 +77,8 @@ export class ToolExecutor {
   setMode(mode: ToolMode): void {
     if (!['plan', 'default', 'accept-edits'].includes(mode))
       throw new ToolError('TOOL_INPUT', '权限模式无效。');
-    if (this.active) throw new ToolError('BUSY', '工具执行或审批期间不能切换模式。');
+    if (this.active || this.queuedHooks)
+      throw new ToolError('BUSY', '工具执行或审批期间不能切换模式。');
     if (this.parent && modeRank(mode) > modeRank(this.parent.mode))
       throw new ToolError('TOOL_PERMISSION', '子执行器不能提升父权限。');
     this.currentMode = mode;
@@ -93,6 +99,7 @@ export class ToolExecutor {
       throw new ToolError('TOOL_PERMISSION', '子执行器不能替换父执行程序。');
     const child = await ToolExecutor.create(this.registry, {
       ...options,
+      ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       shell: this.shell,
       rgExecutable: this.options.rgExecutable ?? 'rg',
       audit: async (record) => {
@@ -128,6 +135,10 @@ export class ToolExecutor {
       recursive,
     );
     const parent = this.parent?.decision(name, effect, path, recursive);
+    if (name === 'HookScript') {
+      const shell = this.decision('Bash', 'shell', path, recursive);
+      if (shell.decision === 'deny') return shell;
+    }
     if (parent?.decision === 'deny' || (parent?.decision === 'ask' && result.decision === 'allow'))
       return { ...parent, sources: [...parent.sources, 'parent'] };
     return result;
@@ -228,7 +239,137 @@ export class ToolExecutor {
     });
   }
 
+  async dispatchHook(
+    event: HookEventName,
+    fields: Pick<HookEvent, 'tool' | 'result' | 'reason'> = {},
+    signal = new AbortController().signal,
+  ) {
+    if (!this.options.hooks) return { decision: 'continue' as const };
+    const decision = await this.options.hooks(
+      {
+        version: 1,
+        event,
+        eventId: randomUUID(),
+        sessionId: this.executorId,
+        mode: this.mode,
+        ...structuredClone(fields),
+      },
+      {
+        mode: this.mode,
+        root: this.paths.root,
+        allowsScript: (path) => this.allowsInstruction(path),
+        executeScript: (invocationId, innerSignal) =>
+          this.executeChecked(
+            { callId: randomUUID(), name: 'HookScript', input: { invocationId } },
+            innerSignal,
+          ),
+      },
+      signal,
+    );
+    if (decision.decision === 'block') throw new ToolError('HOOK_BLOCKED', 'Hook阻止本次动作。');
+    return decision;
+  }
+
   async execute(call: ToolCall, signal = new AbortController().signal): Promise<ToolResult> {
+    if (call.name === 'HookScript')
+      return this.failure(call, 'TOOL_NOT_FOUND', '内部Hook工具不接受直接调用。');
+    if (!this.options.hooks) return this.executeChecked(call, signal);
+    // Hook transactions stay FIFO, including post notifications; script execution cannot recurse.
+    if (this.queuedHooks >= 8) return this.failure(call, 'BUSY', 'Hook工具队列达到8次上限。');
+    this.queuedHooks++;
+    const previous = this.hookQueue;
+    let release!: () => void;
+    this.hookQueue = new Promise<void>((done) => {
+      release = done;
+    });
+    const combined = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(this.options.timeoutMs ?? 60_000),
+    ]);
+    let acquired = false;
+    try {
+      call = { callId: call.callId, name: call.name, input: structuredClone(call.input) };
+      await abortable(previous, combined);
+      acquired = true;
+      checkCancelled(combined);
+      if (this.usedCalls.has(call.callId)) throw new ToolError('TOOL_DUPLICATE', 'callId已使用。');
+      if (!/^[\w.-]{1,128}$/.test(call.callId))
+        throw new ToolError('TOOL_INPUT', 'callId格式无效。');
+      const tool = this.registry.get(call.name);
+      const input = tool.schema.parse(structuredClone(call.input));
+      // Validate the original request and deny policies before running any script.
+      const fields = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+      const { local: scope, recursive } = this.requestScope(tool.name, tool.effect, fields);
+      if (this.decision(tool.name, tool.effect, scope, recursive).decision === 'deny')
+        return await this.executeChecked(call, combined);
+      const policyVersion = this.lineage();
+      const before = await this.dispatchHook('PreToolUse', { tool: { ...call, input } }, combined);
+      if (this.lineage() !== policyVersion)
+        throw new ToolError('TOOL_PERMISSION', 'Hook期间权限变化，拒绝执行。');
+      call = { ...call, input: before.updatedInput ?? input };
+      // executeChecked repeats Schema, path, preparation, fingerprint, approval and policy checks.
+      const result = await this.executeChecked(call, combined);
+      await this.dispatchHook(
+        'PostToolUse',
+        {
+          tool: { callId: call.callId, name: call.name, input: undefined },
+          result: { ok: result.ok, ...(result.error ? { errorCode: result.error.code } : {}) },
+        },
+        combined,
+      ).catch(() => {});
+      return result;
+    } catch (error) {
+      const code = signal.aborted
+        ? 'CANCELLED'
+        : combined.aborted
+          ? 'TOOL_TIMEOUT'
+          : error instanceof ToolError
+            ? error.code
+            : error instanceof z.ZodError
+              ? 'TOOL_INPUT'
+              : 'HOOK_FAILED';
+      // Consume blocked ids as well, so a repeated id cannot rerun an approved script.
+      if (/^[\w.-]{1,128}$/.test(call.callId) && this.usedCalls.size < 10_000)
+        this.usedCalls.add(call.callId);
+      return this.failure(call, code, 'Hook或工具校验未通过，本次工具未执行。');
+    } finally {
+      this.queuedHooks--;
+      if (acquired) release();
+      else void previous.then(release);
+    }
+  }
+
+  private failure(call: ToolCall, code: string, message: string): ToolResult {
+    return {
+      callId: call.callId,
+      name: call.name,
+      ok: false,
+      content: message,
+      error: { code, message },
+    };
+  }
+
+  private requestScope(name: string, effect: ToolContextEffect, fields: Record<string, unknown>) {
+    const recursive = name === 'Glob' || name === 'Grep';
+    const parts = typeof fields.pattern === 'string' ? fields.pattern.split('/') : [];
+    const wildcard = parts.findIndex((part) => /[*?[\]{}()]/.test(part));
+    const rawPath =
+      name === 'Glob'
+        ? (wildcard < 0 ? parts.slice(0, -1) : parts.slice(0, wildcard)).join('/') || '.'
+        : effect === 'external'
+          ? '.'
+          : typeof fields.path === 'string'
+            ? fields.path
+            : typeof fields.cwd === 'string'
+              ? fields.cwd
+              : '.';
+    return { recursive, local: this.paths.display(resolve(this.paths.root, rawPath)) };
+  }
+
+  private async executeChecked(
+    call: ToolCall,
+    signal = new AbortController().signal,
+  ): Promise<ToolResult> {
     let locked = false;
     let entered = false;
     let timedOut = false;
@@ -255,21 +396,8 @@ export class ToolExecutor {
       const policyVersion = this.lineage();
       const input = freezeDeep(tool.schema.parse(structuredClone(call.input)));
       const fields = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
-      const recursive = tool.name === 'Glob' || tool.name === 'Grep';
-      const globParts = typeof fields.pattern === 'string' ? fields.pattern.split('/') : [];
-      const wildcard = globParts.findIndex((part) => /[*?[\]{}()]/.test(part));
-      const rawPath =
-        tool.name === 'Glob'
-          ? (wildcard < 0 ? globParts.slice(0, -1) : globParts.slice(0, wildcard)).join('/') || '.'
-          : tool.effect === 'external'
-            ? '.'
-            : typeof fields.path === 'string'
-              ? fields.path
-              : typeof fields.cwd === 'string'
-                ? fields.cwd
-                : '.';
-      // Resolve scope lexically first. Builtin prepare and run still validate filesystem state.
-      const local = this.paths.display(resolve(this.paths.root, rawPath));
+      // Resolve scope lexically first. Builtin prepare/run validate filesystem state again.
+      const { local, recursive } = this.requestScope(tool.name, tool.effect, fields);
       let decision = this.decision(tool.name, tool.effect, local, recursive);
       if (decision.decision === 'deny') {
         const fingerprint = createHash('sha256')

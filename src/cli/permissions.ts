@@ -3,6 +3,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import type { LoadedConfiguration } from '../config/load.js';
 import { AuditFile } from '../security/audit.js';
 import type { PermissionAudit } from '../security/audit.js';
+import type { HookAudit } from '../tools/hook-types.js';
 import type { ScopedPermissionRule } from '../security/rules.js';
 import { rulePathSchema } from '../security/rules.js';
 import { AppError } from '../shared/errors.js';
@@ -75,6 +76,14 @@ export async function permissionRuntime(
     async audit(record: Readonly<PermissionAudit>) {
       await file?.write(record);
       if (json) process.stdout.write(JSON.stringify({ type: 'permission', record }) + '\n');
+    },
+    async hookAudit(record: Readonly<HookAudit>) {
+      await file?.write(record);
+      if (json) process.stdout.write(JSON.stringify({ type: 'hook', record }) + '\n');
+      else if (record.outcome !== 'continue')
+        process.stderr.write(
+          `Hook ${record.hookId} / ${record.event}：${record.code ?? record.outcome}；详情见审计。\n`,
+        );
     },
     async close() {
       await file?.close();

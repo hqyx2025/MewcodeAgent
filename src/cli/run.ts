@@ -18,6 +18,7 @@ import { referencedValues } from '../mcp/config.js';
 import { memoryRuntime, memoryProtection, printMemoryWarnings } from './memory-runtime.js';
 import { commandRuntime } from './commands.js';
 import { skillRuntime, printSkills } from './skills.js';
+import { hookRuntime } from './hooks.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -268,21 +269,25 @@ export async function runAgentTask(
         );
       else process.stderr.write(`会话 ${session.owner.id}${restored ? '（恢复）' : ''}\n`);
     }
+    const hooks = hookRuntime(loaded, registry, runtime.hookAudit, secrets);
     const executor = await ToolExecutor.create(registry, {
       root: loaded.cwd,
       mode,
+      ...(loaded.settings.hooks.length ? { hooks: hooks.handle } : {}),
       timeoutMs,
       approve: approveTool,
       rules: [...runtime.rules, ...memory.rules],
       audit: runtime.audit,
     });
     skills.bind(executor);
-    for (const id of Object.keys(selected)) {
-      const result = await mcp.connect(id, executor, signal);
-      if (!result.ok)
-        process.stderr.write(`${result.name}：${result.error?.code ?? 'MCP_CONNECT_FAILED'}\n`);
-    }
     const agent = new AgentLoop(provider, executor, {
+      initializeTools: async (setupSignal) => {
+        for (const id of Object.keys(selected)) {
+          const result = await mcp.connect(id, executor, setupSignal);
+          if (!result.ok)
+            process.stderr.write(`${result.name}：${result.error?.code ?? 'MCP_CONNECT_FAILED'}\n`);
+        }
+      },
       model: loaded.settings.provider.model,
       mode,
       maxTurns,

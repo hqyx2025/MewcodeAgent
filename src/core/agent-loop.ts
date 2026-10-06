@@ -4,7 +4,7 @@ import type { LLMEvent, LLMMessage, LLMProvider, LLMToolCall } from '../provider
 import type { ToolExecutor } from '../tools/executor.js';
 import type { ToolMode, ToolResult } from '../tools/types.js';
 import { ProjectInstructions, redactInstruction } from './instructions.js';
-import { byteLimit } from '../tools/errors.js';
+import { byteLimit, ToolError } from '../tools/errors.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { PromptContext, PromptManifest } from './prompt.js';
 import { compactHistory, defaultContext, measureContext, actionDigest } from './context.js';
@@ -30,6 +30,7 @@ export interface AgentOptions {
   resume?: SessionState;
   memory?: { store: MemoryStore; settings: MemorySettings };
   skills?: { catalog: SkillCatalog; explicit?: readonly string[] };
+  initializeTools?: (signal: AbortSignal) => Promise<void>;
 }
 
 export type AgentEvent =
@@ -230,6 +231,7 @@ export class AgentLoop {
     let pending: LLMToolCall[] = [];
     let inFlight: string | undefined;
     let status: SessionState['status'] = 'running';
+    let endReason: 'error' | undefined;
     const checkpoint = async (
       event: Parameters<SessionStore['commit']>[1] = 'checkpoint',
       messages = this.messages,
@@ -256,17 +258,28 @@ export class AgentLoop {
       this.options.sensitiveValues,
       (path) => this.executor.allowsInstruction(path),
     );
-    const finish = (reason: Extract<AgentEvent, { type: 'finish' }>['reason']): AgentEvent => ({
-      type: 'finish',
-      reason,
-      turns,
-      toolCalls,
-      totalTokens,
-      estimated,
-    });
+    const finish = async (
+      reason: Extract<AgentEvent, { type: 'finish' }>['reason'],
+    ): Promise<AgentEvent> => {
+      try {
+        await this.executor.dispatchHook('Stop', { reason }, combined);
+      } catch (error) {
+        status = 'stopped';
+        await checkpoint('finish');
+        throw error;
+      }
+      await checkpoint('finish');
+      return { type: 'finish', reason, turns, toolCalls, totalTokens, estimated };
+    };
     try {
       if (this.options.mode !== this.executor.mode)
         throw new AppError('CONFIG_INVALID', '权限模式已变化；请以新模式创建Agent任务。');
+      await this.executor.dispatchHook(
+        'SessionStart',
+        { reason: restored ? 'resume' : 'new' },
+        combined,
+      );
+      await this.options.initializeTools?.(combined);
       const visible = this.executor.registry
         .definitions()
         .filter((tool) => this.options.mode !== 'plan' || tool.effect === 'read');
@@ -302,8 +315,7 @@ export class AgentLoop {
       await checkpoint(restored ? 'recovery' : 'checkpoint');
       if (restored?.status === 'completed' && !prompt.trim()) {
         status = 'completed';
-        await checkpoint('finish');
-        yield finish('completed');
+        yield await finish('completed');
         return;
       }
       for (turns = (restored?.turns ?? 0) + 1; turns <= this.options.maxTurns; turns++) {
@@ -371,8 +383,7 @@ export class AgentLoop {
         if (totalTokens >= (this.options.maxTotalTokens ?? 200_000)) {
           turns--;
           status = 'stopped';
-          await checkpoint('finish');
-          yield finish('token_budget');
+          yield await finish('token_budget');
           return;
         }
         if (this.options.mode !== this.executor.mode)
@@ -436,8 +447,7 @@ export class AgentLoop {
         // A truncated call is never parsed or executed, even if its prefix looks valid.
         if (end === 'length') {
           status = 'stopped';
-          await checkpoint('finish');
-          yield finish('length');
+          yield await finish('length');
           return;
         }
         const calls = buffer.complete();
@@ -447,8 +457,7 @@ export class AgentLoop {
           throw new AppError('MODEL_PROTOCOL', '模型重复使用了已执行的调用编号，本轮未执行工具。');
         if (totalTokens > (this.options.maxTotalTokens ?? 200_000)) {
           status = 'stopped';
-          await checkpoint('finish');
-          yield finish('token_budget');
+          yield await finish('token_budget');
           return;
         }
         const guidanceChanged = await this.discoverCalls(instructions, calls, combined);
@@ -467,8 +476,7 @@ export class AgentLoop {
         });
         if (!calls.length) {
           status = 'completed';
-          await checkpoint('finish');
-          yield finish('completed');
+          yield await finish('completed');
           return;
         }
         pending = [...calls];
@@ -547,23 +555,38 @@ export class AgentLoop {
           this.checkCancelled(combined);
           if (failures >= (this.options.maxFailures ?? 3)) {
             status = 'stopped';
-            await checkpoint('finish');
-            yield finish('repeated_failures');
+            yield await finish('repeated_failures');
             return;
           }
         }
       }
       turns = this.options.maxTurns;
       status = 'stopped';
-      await checkpoint('finish');
-      yield finish('max_turns');
+      yield await finish('max_turns');
     } catch (error) {
+      endReason = 'error';
       if (timedOut && !signal.aborted)
         throw new AppError('MODEL_TIMEOUT', 'Agent 任务达到总时间限制；已完成的操作保留。');
       if (signal.aborted) throw new AppError('CANCELLED', 'Agent 任务已取消；已完成的操作保留。');
+      if (error instanceof ToolError)
+        throw new AppError(
+          'HOOK_FAILED',
+          '生命周期Hook阻止任务；已完成的操作保留，请检查Hook审计。',
+        );
       if (error instanceof AppError) throw error;
       throw new AppError('MODEL_PROTOCOL', 'Agent 模型响应无效；已完成的操作保留。');
     } finally {
+      await this.executor
+        .dispatchHook(
+          'SessionEnd',
+          {
+            reason: combined.aborted
+              ? 'cancelled'
+              : (endReason ?? (status === 'running' ? 'interrupted' : status)),
+          },
+          combined,
+        )
+        .catch(() => {});
       // Preserve complete call/result pairs even if the consumer stops mid-batch.
       for (const call of pending)
         this.messages.push({
