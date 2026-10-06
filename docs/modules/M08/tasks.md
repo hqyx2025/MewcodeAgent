@@ -7,4 +7,4 @@
 - [x] run保存/恢复、sessions查看/压缩/结果/清理命令。
 - [x] 模拟回归、真实进程崩溃回归、100轮基准与完整检查。
 - [x] 独立安装包最终回归。
-- [ ] 更新README/路线；提交推送并核对Windows/Linux CI。
+- [x] 更新README/路线；提交推送并核对Windows/Linux CI，见[验收记录](checklist.md)。

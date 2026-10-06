@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M08 已完成本地验收，CI待核对**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP，以及可选持久会话、上下文压缩和结果溢写。M08 的恢复边界见 [规格](docs/modules/M08/spec.md) 与[验收记录](docs/modules/M08/checklist.md)。
+当前阶段：**M08 已完成，Windows/Linux CI及独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP，以及可选持久会话、上下文压缩和结果溢写。M08 的恢复边界见 [规格](docs/modules/M08/spec.md) 与[验收记录](docs/modules/M08/checklist.md)，下一模块为M09记忆系统。
 
 ## 先阅读这些文档
 
