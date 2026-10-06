@@ -7,4 +7,4 @@
 - [x] 覆盖阻止、改参、越界/deny、无效JSON、超时、脚本失败、取消和结束行为。
 - [x] 运行check与独立安装包测试，记录实际平台和结果。
 - [x] 记录固定负载Hook基准并同步路线与README。
-- [ ] 提交、推送并核对Windows/Linux CI状态。
+- [x] 提交、推送并核对Windows/Linux CI状态。

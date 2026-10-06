@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M12 Hook 系统已实现，本地验收与独立安装包通过，Windows/Linux CI待核对**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源与生命周期Hook。M12 的边界见[规格](docs/modules/M12/spec.md)与[验收记录](docs/modules/M12/checklist.md)，下一模块为M13 SubAgent。
+当前阶段：**M12 Hook 系统已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源与生命周期Hook。M12 的边界见[规格](docs/modules/M12/spec.md)与[验收记录](docs/modules/M12/checklist.md)，下一模块为M13 SubAgent。
 
 ## 先阅读这些文档
 

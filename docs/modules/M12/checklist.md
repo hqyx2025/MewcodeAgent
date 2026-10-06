@@ -1,6 +1,6 @@
 # M12 验收记录
 
-状态：本地验收通过，待核对最终提交的Windows/Linux CI。
+状态：本地与Windows/Linux CI验收通过。
 
 ## 行为与边界
 
@@ -24,7 +24,7 @@
 - [x] `npm run test:package`：生产依赖独立安装、Unicode/空格目录，实际执行批准的Node Hook快照，中文脚本路径与Hook审计通过；既有六工具、MCP、持久恢复、记忆、命令与Skill回归通过。
 - [x] help/version仍不加载配置/模型/UI重依赖；help七次中位数39.28ms，编译JS合计336495 bytes；本地验证包272248 bytes（包含当时README，文档更新会改变包大小）。
 - [x] 默认使用模拟provider、临时目录与模拟审批，不调用真实模型服务。不读取或输出仓库中被忽略的密钥配置。
-- [ ] Windows/Linux CI：待推送后核对，不能以本地结果替代Linux验收。
+- [x] [Windows/Linux CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37443796166)通过，验证代码提交 `e7db42e50e396a718bdaac56bdba842708cba0c0`。两平台Node v24.21.0；Windows为41文件、357通过/1跳过，Ubuntu为41文件、355通过/3跳过，共358；两平台check与test:package均成功。Linux专用文件符号链接测试分支实际运行，Windows专用既有路径回归实际运行。后续仅验收文档提交，不改变已验证代码。
 
 ## 延迟基准
 
