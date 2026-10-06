@@ -119,6 +119,14 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('permissions')
+    .description('查看有效权限模式、规则来源和审批范围，不调用模型')
+    .action(async (_options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { inspectPermissions } = await import('./permissions.js');
+      inspectPermissions(loaded);
+    });
+  program
     .command('prompt')
     .description('查看系统提示分段、环境与根指令来源元数据，不调用模型或输出正文')
     .option('--json', '输出JSON元数据')
@@ -135,6 +143,7 @@ export function createProgram(): Command {
     .option('--max-turns <count>', '模型轮数上限（1–1000）')
     .option('--max-total-tokens <count>', '累计输入+输出token上限（无usage时估算）')
     .option('--timeout-ms <milliseconds>', '整个任务时限（1–3600000）')
+    .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（父目录须存在）')
     .action(async (task: string, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
       const { runAgent } = await import('./run.js');
@@ -156,6 +165,7 @@ export function createProgram(): Command {
     .option('--approve', '用户明确授权本次写入或shell；不能覆盖Plan禁止规则')
     .option('--shell <kind>', 'powershell / bash；仅影响Bash工具')
     .option('--shell-executable <path>', '用户指定shell可执行程序绝对路径')
+    .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（不覆盖）')
     .action(async (name: string, _options: unknown, command: Command) => {
       const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
       const { runTool } = await import('./tools.js');

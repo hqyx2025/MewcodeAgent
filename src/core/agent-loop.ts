@@ -3,7 +3,8 @@ import { ToolCallBuffer } from '../providers/tool-calls.js';
 import type { LLMEvent, LLMMessage, LLMProvider, LLMToolCall } from '../providers/types.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import type { ToolMode, ToolResult } from '../tools/types.js';
-import { ProjectInstructions } from './instructions.js';
+import { ProjectInstructions, redactInstruction } from './instructions.js';
+import { byteLimit } from '../tools/errors.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { PromptContext, PromptManifest } from './prompt.js';
 
@@ -63,7 +64,11 @@ export class AgentLoop {
   }
 
   async inspectPrompt(signal: AbortSignal = new AbortController().signal): Promise<PromptManifest> {
-    const instructions = new ProjectInstructions(this.executor.paths, this.options.sensitiveValues);
+    const instructions = new ProjectInstructions(
+      this.executor.paths,
+      this.options.sensitiveValues,
+      (path) => this.executor.allowsInstruction(path),
+    );
     await instructions.discover('.', 'directory', signal);
     return this.compose(instructions).manifest;
   }
@@ -82,6 +87,13 @@ export class AgentLoop {
         mode: this.executor.mode,
         shell: this.executor.shell,
         tools,
+        policySummary: byteLimit(
+          redactInstruction(
+            JSON.stringify(this.executor.policyMetadata),
+            this.options.sensitiveValues,
+          ),
+          8192,
+        ),
         budgets: {
           maxTurns: this.options.maxTurns,
           timeoutMs: this.options.timeoutMs,
@@ -165,7 +177,11 @@ export class AgentLoop {
     let turns = 0;
     const seenIds = new Set<string>();
     let pending: LLMToolCall[] = [];
-    const instructions = new ProjectInstructions(this.executor.paths, this.options.sensitiveValues);
+    const instructions = new ProjectInstructions(
+      this.executor.paths,
+      this.options.sensitiveValues,
+      (path) => this.executor.allowsInstruction(path),
+    );
     const finish = (reason: Extract<AgentEvent, { type: 'finish' }>['reason']): AgentEvent => ({
       type: 'finish',
       reason,
@@ -175,6 +191,8 @@ export class AgentLoop {
       estimated,
     });
     try {
+      if (this.options.mode !== this.executor.mode)
+        throw new AppError('CONFIG_INVALID', '权限模式已变化；请以新模式创建Agent任务。');
       const visible = this.executor.registry
         .definitions()
         .filter((tool) => this.options.mode !== 'plan' || tool.effect === 'read');
@@ -200,6 +218,8 @@ export class AgentLoop {
           yield finish('token_budget');
           return;
         }
+        if (this.options.mode !== this.executor.mode)
+          throw new AppError('CONFIG_INVALID', '任务期间权限模式已变化，停止当前任务。');
         yield { type: 'turn_start', turn: turns };
         const buffer = new ToolCallBuffer();
         let text = '';

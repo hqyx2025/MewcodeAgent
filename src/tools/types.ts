@@ -31,7 +31,14 @@ export interface ApprovalRequest {
   readonly input: unknown;
   readonly target: string;
   readonly preview: string;
+  readonly cwd: string;
+  readonly shell: Readonly<ToolContext['shell']>;
+  readonly mode: ToolMode;
+  readonly fingerprint: string;
+  readonly scope: 'exact-input';
 }
+
+export type ApprovalAnswer = boolean | { allow: boolean; scope: 'once' | 'session' };
 
 export interface ToolContext {
   paths: ProjectPaths;

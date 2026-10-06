@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M01–M05 已完成**，支持流式对话、六个编程工具、有界 Agent Loop、分段系统提示与项目指令。下一模块 M06 将完善权限系统。
+当前阶段：**M01–M06 已完成本地验收**，支持流式对话、六个编程工具、有界 Agent Loop、项目指令与分层权限。下一模块 M07 接入 MCP。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M05/spec.md)、[任务](docs/modules/M05/tasks.md)与[验收记录](docs/modules/M05/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M06/spec.md)、[任务](docs/modules/M06/tasks.md)与[验收记录](docs/modules/M06/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
 
 ## 本地运行
 
@@ -54,11 +54,39 @@ npm run agent -- "修复一个小 bug 并运行测试"
 
 `npm run agent` 自动读取存在的 `.env.local`，沿用已有模型配置。离线 Mock 仅调用 Glob 并汇报结果，不解释或修改任意任务。
 
-默认修改与 shell 逐次展示路径、预览和完整参数，TTY 输入 y 批准本次操作；非 TTY 拒绝需要审批的动作。`--mode accept-edits` 允许文件修改，shell 仍需确认；Plan 只暴露读取工具并由执行器再次拦截写入。
+默认修改与 shell 展示最终路径、cwd、shell、diff和完整参数，TTY 输入 y 批准本次，s 授权当前进程内完全相同的操作；非 TTY 拒绝需要审批的动作。`--mode accept-edits` 允许文件修改，shell 仍需确认；Plan 只暴露读取工具并由执行器再次拦截写入。更严格的规则始终生效。
 
 `run` 支持 `--max-turns`（默认配置 20）、`--max-total-tokens`（默认 200000）、`--timeout-ms`（默认配置 120000）。连续三次工具失败停止；损坏/截断分片不执行工具；取消保留已完成的修改。token 使用服务报告或明确标记的估算，不能视为精确费用上限。
 
 `--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。当前工具串行执行、上下文有界，不持久化或自动恢复任务。
+
+## 权限规则与审计
+
+```powershell
+npm run dev -- permissions
+# 审计父目录须已存在；每次使用新文件名
+npm run dev -- --provider mock --model mock-v1 --mode plan run "查看目录" --json --audit-file ../mewcode-audit-001.jsonl
+```
+
+用户配置 `~/.mewcode/config.yaml` 与项目 `.mewcode/config.yaml` 可保存规则，例如：
+
+```yaml
+permissions:
+  rules:
+    - decision: deny
+      path: private
+    - decision: ask
+      effect: write
+      path: src
+```
+
+支持 `decision: allow/ask/deny`、可选 `tool`、`effect: read/write/shell`、`path`。path 是项目相对字面路径，使用 `/`，覆盖子目录；不支持 glob、命令前缀或目录穿越。规则累积且 deny > ask > allow；项目 allow 不能免除修改审批，只有用户/CLI的显式文件 allow 可授予文件权限，shell 始终需审批。项目配置也不能将 default 或 Plan 自动改成 accept-edits；可用用户配置、环境变量或 `--mode` 显式选择模式。
+
+递归 Glob/Grep 范围与受限目录相交时，整次查询被拒绝或要求审批，应缩小搜索范围。ReadFile 路径 deny 同时保护递归读取、项目指令和编辑准备阶段；需要审批的项目指令不会被自动注入。模型、普通文件或项目指令不能修改权限。
+
+会话授权只匹配完整参数、目标、预览、shell及策略版本，不授权目录或命令前缀，不跨进程保存。每次仍检查路径和文件revision；模式变化清空授权，运行或审批中不能切换。执行器提供受约束的 fork 接口，实际子Agent在M13实现。
+
+`run --json` 增加 `permission` 事件；`tool` 的 JSON 带 `audit`。审计只含决策、来源、模式、授权方式、缓存命中、执行器标识及调用/参数摘要，不含命令、文件内容或绝对路径。`--audit-file` 写入新JSONL文件，不能覆盖已有文件或跟随链接，写入故障阻止动作。推荐保存到项目之外，或已创建的 `.mewcode/audit/`；若选项目内其他位置，该文件会成为禁止范围，覆盖它的递归搜索也会拒绝。审计记录表示授权决策，实际执行成功与否以工具结果为准，不用于自动重放任务。
 
 ## 系统提示与项目指令
 
@@ -102,7 +130,7 @@ Glob 支持 `*`、`**`、`?` 和字符类，以及 `includeHidden`、`ignore`、
 
 可将 [examples/config.yaml](examples/config.yaml) 复制为项目内 `.mewcode/config.yaml` 或用户目录 `~/.mewcode/config.yaml`。可选文件缺失时使用默认配置；`--config` 显式指定的文件缺失会报错。
 
-覆盖顺序：默认值 → 用户文件 → 项目文件 → 环境变量 → CLI 字段。嵌套字段合并，未知字段报错，密钥仅引用环境变量名称，不允许写入配置值。
+普通字段覆盖顺序：默认值 → 用户文件 → 项目文件 → 环境变量 → CLI 字段。嵌套字段合并，未知字段报错，密钥仅引用环境变量名称，不允许写入配置值。权限规则按来源累积，不被空数组清除；项目mode只可收紧。规则总量上限400条。
 
 ```powershell
 npm run dev -- --cwd "C:\你的 项目" config --json
@@ -140,6 +168,7 @@ npm run test:package
 npm run bench:tools
 npm run bench:agent
 npm run bench:prompt
+npm run bench:permissions
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。

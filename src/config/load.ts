@@ -6,6 +6,7 @@ import type { ZodType } from 'zod';
 import { AppError } from '../shared/errors.js';
 import { configPatchSchema, configSchema, defaultSettings, mergeSettings } from './schema.js';
 import type { ConfigPatch, Settings } from './schema.js';
+import type { ScopedPermissionRule } from '../security/rules.js';
 
 const MAX_CONFIG_BYTES = 256 * 1_024;
 
@@ -32,6 +33,7 @@ export interface LoadedConfiguration {
     logFile: string;
   };
   sources: ConfigSource[];
+  permissionRules: ScopedPermissionRule[];
 }
 
 function validate<T>(schema: ZodType<T>, input: unknown, source: string): T {
@@ -149,6 +151,7 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
     ? resolve(cwd, options.configFile)
     : join(projectDirectory, 'config.yaml');
   const sources: ConfigSource[] = [{ kind: 'defaults' }];
+  const permissionRules: ScopedPermissionRule[] = [];
   let settings = defaultSettings;
   for (const [kind, path, required] of [
     ['user', join(userDirectory, 'config.yaml'), false],
@@ -156,7 +159,15 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
   ] as const) {
     const patch = await readConfig(path, required);
     if (patch !== undefined) {
-      settings = mergeSettings(settings, patch);
+      permissionRules.push(
+        ...(patch.permissions?.rules ?? []).map((rule) => ({ ...rule, source: kind })),
+      );
+      // Project config may restrict a trusted mode, never elevate it.
+      const projectMode =
+        kind === 'project' && patch.mode !== undefined
+          ? stricterMode(settings.mode, patch.mode)
+          : patch.mode;
+      settings = mergeSettings(settings, { ...patch, mode: projectMode });
       sources.push({ kind, path });
     }
   }
@@ -165,6 +176,10 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
     ['cli', validate(configPatchSchema, options.overrides ?? {}, '命令行：')],
   ] as const) {
     if (Object.keys(patch).length > 0) {
+      if (kind === 'cli')
+        permissionRules.push(
+          ...(patch.permissions?.rules ?? []).map((rule) => ({ ...rule, source: 'cli' as const })),
+        );
       settings = mergeSettings(settings, patch);
       sources.push({ kind });
     }
@@ -179,5 +194,11 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
     settings,
     paths: { userDirectory, projectDirectory, storageDirectory, logFile },
     sources,
+    permissionRules,
   };
+}
+
+function stricterMode(current: Settings['mode'], project: Settings['mode']): Settings['mode'] {
+  const rank = { plan: 0, default: 1, 'accept-edits': 2 };
+  return rank[project] < rank[current] ? project : current;
 }

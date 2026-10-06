@@ -20,7 +20,7 @@ export interface InstructionSource {
 export type InstructionMetadata = Omit<InstructionSource, 'text'>;
 export interface InstructionWarning {
   path: string;
-  code: 'UNREADABLE' | 'INVALID_TEXT' | 'TRUNCATED' | 'REDACTED';
+  code: 'UNREADABLE' | 'INVALID_TEXT' | 'TRUNCATED' | 'REDACTED' | 'PERMISSION';
   message: string;
 }
 
@@ -37,6 +37,7 @@ export class ProjectInstructions {
   constructor(
     private readonly paths: ProjectPaths,
     private readonly sensitiveValues: readonly string[] = [],
+    private readonly canRead: (path: string) => boolean = () => true,
   ) {}
 
   get sources(): readonly InstructionSource[] {
@@ -102,6 +103,10 @@ export class ProjectInstructions {
     for (const format of ['AGENTS.md', 'CLAUDE.md'] as const) {
       const path = join(directory, format);
       const display = this.paths.display(path);
+      if (!this.canRead(path)) {
+        this.warn(display, 'PERMISSION', '该指令来源需要审批或被禁止，不自动读取。');
+        return false;
+      }
       let stat;
       try {
         stat = await lstat(path);

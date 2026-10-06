@@ -15,6 +15,7 @@ export type ErrorCode =
   | 'INVALID_PROMPT'
   | 'CONTEXT_LIMIT'
   | 'INSTRUCTIONS_LIMIT'
+  | 'AUDIT_FAILED'
   | 'BUSY';
 
 export class AppError extends Error {

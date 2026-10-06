@@ -63,7 +63,11 @@ describe('layered configuration', () => {
   it('uses an explicit config file instead of the project default', async () => {
     await writeFile(join(sandbox.projectDirectory, 'config.yaml'), 'mode: plan\n');
     await writeFile(join(sandbox.cwd, '指定 配置.yaml'), 'mode: accept-edits\n');
-    expect((await load({ configFile: '指定 配置.yaml' })).settings.mode).toBe('accept-edits');
+    expect((await load({ configFile: '指定 配置.yaml' })).settings.mode).toBe('default');
+    expect(
+      (await load({ configFile: '指定 配置.yaml', overrides: { mode: 'accept-edits' } })).settings
+        .mode,
+    ).toBe('accept-edits');
     await expect(load({ configFile: 'missing.yaml' })).rejects.toMatchObject({
       code: 'CONFIG_READ',
     });

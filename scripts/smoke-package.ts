@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -103,12 +103,30 @@ registerHooks({
   assert.equal(promptMetadata.version, 'm05-v1');
   assert.equal(promptMetadata.sources[0]?.path, 'AGENTS.md');
   assert(!JSON.stringify(promptMetadata).includes('package-guidance-must-not-print'));
+  const permissions = JSON.parse((await run(['--mode', 'plan', 'permissions'])).stdout) as {
+    mode: string;
+    rules: unknown[];
+  };
+  assert.equal(permissions.mode, 'plan');
+  assert.deepEqual(permissions.rules, []);
   assert.equal((JSON.parse((await run(['tools'])).stdout) as unknown[]).length, 6);
   await writeFile(join(installation, '工具文件.txt'), '安装后的工具 🐈');
   const readTool = JSON.parse(
-    (await run(['tool', 'ReadFile', '--input', JSON.stringify({ path: '工具文件.txt' })])).stdout,
+    (
+      await run([
+        'tool',
+        'ReadFile',
+        '--audit-file',
+        '安装审计.jsonl',
+        '--input',
+        JSON.stringify({ path: '工具文件.txt' }),
+      ])
+    ).stdout,
   ) as { ok: boolean; content: string };
   assert(readTool.ok && readTool.content.includes('安装后的工具 🐈'));
+  const auditContent = await readFile(join(installation, '安装审计.jsonl'), 'utf8');
+  assert.equal((JSON.parse(auditContent.trim()) as { decision: string }).decision, 'allow');
+  assert(!auditContent.includes('安装后的工具'));
   const writtenTool = JSON.parse(
     (
       await run([
@@ -156,6 +174,7 @@ registerHooks({
         tools: 'passed (schemas, read, approved write)',
         agent: 'passed (offline Plan tool loop, JSONL)',
         prompt: 'passed (instruction metadata without source text)',
+        permissions: 'passed (mode inspection, persisted redacted decision)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

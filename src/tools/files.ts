@@ -101,7 +101,32 @@ async function atomicWrite(
 }
 
 function preview(before: string | undefined, after: string): string {
-  return `${before === undefined ? '创建文件' : '覆盖文件'}\n--- 原内容（最多1536 bytes）\n${byteLimit(before ?? '(不存在)', 1536)}\n+++ 新内容（最多2048 bytes）\n${byteLimit(after, 2048)}`;
+  const oldLines = before === undefined ? [] : before.split('\n');
+  const newLines = after.split('\n');
+  let prefix = 0;
+  while (
+    prefix < Math.min(oldLines.length, newLines.length) &&
+    oldLines[prefix] === newLines[prefix]
+  )
+    prefix++;
+  let suffix = 0;
+  while (
+    suffix < Math.min(oldLines.length, newLines.length) - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  )
+    suffix++;
+  const start = Math.max(0, prefix - 3);
+  const beforeEnd = Math.min(oldLines.length, oldLines.length - suffix + 3);
+  const afterEnd = Math.min(newLines.length, newLines.length - suffix + 3);
+  const lines = [
+    `@@ -${start + 1},${beforeEnd - start} +${start + 1},${afterEnd - start} @@`,
+    ...oldLines.slice(start, prefix).map((line) => ' ' + line),
+    ...oldLines.slice(prefix, oldLines.length - suffix).map((line) => '-' + line),
+    ...newLines.slice(prefix, newLines.length - suffix).map((line) => '+' + line),
+    ...newLines.slice(newLines.length - suffix, afterEnd).map((line) => ' ' + line),
+  ].join('\n');
+  const bounded = byteLimit(lines, 4096);
+  return `${before === undefined ? '创建文件' : '覆盖文件'}\n--- before（原内容）\n+++ after（新内容）\n${bounded}${bounded !== lines ? '\n[diff截断；完整新参数见input，完整原文需先读取]' : ''}`;
 }
 
 export const readFileTool = defineTool({

@@ -7,6 +7,7 @@ import { createBuiltinRegistry } from '../tools/builtins.js';
 import { ToolExecutor } from '../tools/executor.js';
 import type { LoadedConfiguration } from '../config/load.js';
 import type { ToolContext } from '../tools/types.js';
+import { permissionRuntime } from './permissions.js';
 
 export interface ToolCLIOptions {
   input?: string;
@@ -14,6 +15,7 @@ export interface ToolCLIOptions {
   approve?: boolean;
   shell?: string;
   shellExecutable?: string;
+  auditFile?: string;
 }
 
 export function listTools(): void {
@@ -76,32 +78,42 @@ export async function runTool(
             : 'pwsh'),
     };
   }
-  const executor = await ToolExecutor.create(createBuiltinRegistry(), {
-    root: loaded.cwd,
-    mode: loaded.settings.mode,
-    timeoutMs: loaded.settings.limits.timeoutMs,
-    ...(shell ? { shell } : {}),
-    ...(options.approve
-      ? {
-          approve: async (request) => {
-            process.stderr.write(
-              terminalText(
-                `已按--approve授权本次${request.name}：${request.target}\n${request.preview}\n`,
-              ),
-            );
-            return true;
-          },
-        }
-      : {}),
-  });
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  process.once('SIGINT', cancel);
+  const runtime = await permissionRuntime(loaded, options.auditFile);
   try {
-    const result = await executor.execute({ callId: randomUUID(), name, input }, controller.signal);
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
-    if (!result.ok) process.exitCode = result.error?.code === 'CANCELLED' ? 130 : 1;
+    const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+      root: loaded.cwd,
+      mode: loaded.settings.mode,
+      timeoutMs: loaded.settings.limits.timeoutMs,
+      rules: runtime.rules,
+      audit: runtime.audit,
+      ...(shell ? { shell } : {}),
+      ...(options.approve
+        ? {
+            approve: async (request) => {
+              process.stderr.write(
+                terminalText(
+                  `已按--approve授权本次${request.name}：${request.target}\n${request.preview}\n`,
+                ),
+              );
+              return true;
+            },
+          }
+        : {}),
+    });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    process.once('SIGINT', cancel);
+    try {
+      const result = await executor.execute(
+        { callId: randomUUID(), name, input },
+        controller.signal,
+      );
+      process.stdout.write(`${JSON.stringify({ ...result, audit: executor.auditLog }, null, 2)}\n`);
+      if (!result.ok) process.exitCode = result.error?.code === 'CANCELLED' ? 130 : 1;
+    } finally {
+      process.removeListener('SIGINT', cancel);
+    }
   } finally {
-    process.removeListener('SIGINT', cancel);
+    await runtime.close();
   }
 }

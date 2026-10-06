@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { permissionRuleSchema } from '../security/rules.js';
 
 export const providerKinds = ['mock', 'openai-compatible', 'anthropic'] as const;
 export const agentModes = ['plan', 'default', 'accept-edits'] as const;
@@ -46,12 +47,14 @@ const storageSchema = z.strictObject({
   directory: pathSchema.optional(),
   logFile: pathSchema.optional(),
 });
+const permissionsSchema = z.strictObject({ rules: z.array(permissionRuleSchema).max(400) });
 
 export const configPatchSchema = z.strictObject({
   provider: providerSchema.partial().optional(),
   mode: z.enum(agentModes).optional(),
   limits: limitsSchema.partial().optional(),
   storage: storageSchema.optional(),
+  permissions: permissionsSchema.partial().optional(),
 });
 
 export const configSchema = z
@@ -60,6 +63,7 @@ export const configSchema = z
     mode: z.enum(agentModes),
     limits: limitsSchema,
     storage: storageSchema,
+    permissions: permissionsSchema,
   })
   .superRefine((value, context) => {
     if (value.provider.kind !== 'mock' && value.provider.model === 'mock-v1') {
@@ -79,6 +83,7 @@ export const defaultSettings: Settings = {
   mode: 'default',
   limits: { maxTurns: 20, timeoutMs: 120_000, maxOutputTokens: 4_096 },
   storage: {},
+  permissions: { rules: [] },
 };
 
 export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
@@ -87,6 +92,7 @@ export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
     mode: patch.mode ?? current.mode,
     limits: mergeDefined(current.limits, patch.limits),
     storage: mergeDefined(current.storage, patch.storage),
+    permissions: { rules: [...current.permissions.rules, ...(patch.permissions?.rules ?? [])] },
   };
 }
 

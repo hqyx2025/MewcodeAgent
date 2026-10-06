@@ -6,7 +6,8 @@ import { AppError } from '../shared/errors.js';
 import { terminalText } from '../shared/terminal-text.js';
 import { createBuiltinRegistry } from '../tools/builtins.js';
 import { ToolExecutor } from '../tools/executor.js';
-import type { ApprovalRequest } from '../tools/types.js';
+import type { ApprovalAnswer, ApprovalRequest } from '../tools/types.js';
+import { permissionRuntime } from './permissions.js';
 import { MockProvider } from '../providers/mock.js';
 import type { PromptManifest } from '../core/prompt.js';
 
@@ -15,6 +16,7 @@ export interface RunCLIOptions {
   maxTurns?: string;
   maxTotalTokens?: string;
   timeoutMs?: string;
+  auditFile?: string;
 }
 
 function sensitiveValues(loaded: LoadedConfiguration): string[] {
@@ -46,6 +48,7 @@ export async function inspectPrompt(loaded: LoadedConfiguration, json: boolean):
   const executor = await ToolExecutor.create(createBuiltinRegistry(), {
     root: loaded.cwd,
     mode: loaded.settings.mode,
+    rules: loaded.permissionRules,
   });
   const manifest = await new AgentLoop(new MockProvider({ delayMs: 0 }), executor, {
     model: loaded.settings.provider.model,
@@ -70,21 +73,32 @@ function positive(value: string | undefined, fallback: number, max: number): num
   return number;
 }
 
-export async function approveTool(request: ApprovalRequest, signal: AbortSignal): Promise<boolean> {
+export async function approveTool(
+  request: ApprovalRequest,
+  signal: AbortSignal,
+): Promise<ApprovalAnswer> {
   if (!process.stdin.isTTY || !process.stderr.isTTY) {
     process.stderr.write(`需要审批的 ${terminalText(request.name)} 已拒绝：非交互终端无法确认。\n`);
     return false;
   }
   process.stderr.write(
     terminalText(
-      `\n授权本次 ${request.name}：${request.target}\n${request.preview}\n参数：${JSON.stringify(request.input, null, 2)}\n`,
+      `\n审批 ${request.name}：${request.target}\n模式：${request.mode}；cwd：${request.cwd}\nShell：${request.shell.kind} (${request.shell.executable})\n${request.preview}\n参数：${JSON.stringify(request.input, null, 2)}\n会话授权仅复用完全相同的参数、目标与预览，不授权命令前缀或整个目录。\n`,
     ),
   );
   const reader = createInterface({ input: process.stdin, output: process.stderr });
   // readline handles Ctrl+C itself while it owns the terminal input.
   reader.once('SIGINT', () => process.emit('SIGINT'));
   try {
-    return /^(y|yes)$/i.test((await reader.question('允许本次操作？[y/N] ', { signal })).trim());
+    const answer = (
+      await reader.question('允许本次[y] / 会话内相同操作[s] / 拒绝[N]：', { signal })
+    )
+      .trim()
+      .toLowerCase();
+    return {
+      allow: ['y', 'yes', 's'].includes(answer),
+      scope: answer === 's' ? 'session' : 'once',
+    };
   } catch {
     return false;
   } finally {
@@ -101,47 +115,54 @@ export async function runAgent(
   const timeoutMs = positive(options.timeoutMs, loaded.settings.limits.timeoutMs, 3_600_000);
   const maxTotalTokens = positive(options.maxTotalTokens, 200_000, 100_000_000);
   const provider = await createProvider(loaded.settings);
-  const executor = await ToolExecutor.create(createBuiltinRegistry(), {
-    root: loaded.cwd,
-    mode: loaded.settings.mode,
-    timeoutMs,
-    approve: approveTool,
-  });
-  const agent = new AgentLoop(provider, executor, {
-    model: loaded.settings.provider.model,
-    mode: loaded.settings.mode,
-    maxTurns,
-    timeoutMs,
-    maxOutputTokens: loaded.settings.limits.maxOutputTokens,
-    maxTotalTokens,
-    sensitiveValues: sensitiveValues(loaded),
-  });
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  process.once('SIGINT', cancel);
-  const shownWarnings = new Set<string>();
+  const runtime = await permissionRuntime(loaded, options.auditFile, options.json);
   try {
-    for await (const event of agent.run(task, controller.signal)) {
-      if (options.json) process.stdout.write(`${JSON.stringify(event)}\n`);
-      else if (event.type === 'prompt_info') printPrompt(event.manifest, shownWarnings);
-      else if (event.type === 'text_delta') process.stdout.write(terminalText(event.text));
-      else if (event.type === 'tool_start')
-        process.stderr.write(terminalText(`\n调用 ${event.name} (${event.callId})\n`));
-      else if (event.type === 'tool_result')
-        process.stderr.write(
-          `${terminalText(event.result.name)}：${event.result.ok ? '成功' : terminalText(event.result.error?.code ?? '失败')}\n`,
-        );
-      if (event.type === 'finish') {
-        if (!options.json) {
-          process.stdout.write('\n');
+    const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+      root: loaded.cwd,
+      mode: loaded.settings.mode,
+      timeoutMs,
+      approve: approveTool,
+      rules: runtime.rules,
+      audit: runtime.audit,
+    });
+    const agent = new AgentLoop(provider, executor, {
+      model: loaded.settings.provider.model,
+      mode: loaded.settings.mode,
+      maxTurns,
+      timeoutMs,
+      maxOutputTokens: loaded.settings.limits.maxOutputTokens,
+      maxTotalTokens,
+      sensitiveValues: sensitiveValues(loaded),
+    });
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    process.once('SIGINT', cancel);
+    const shownWarnings = new Set<string>();
+    try {
+      for await (const event of agent.run(task, controller.signal)) {
+        if (options.json) process.stdout.write(`${JSON.stringify(event)}\n`);
+        else if (event.type === 'prompt_info') printPrompt(event.manifest, shownWarnings);
+        else if (event.type === 'text_delta') process.stdout.write(terminalText(event.text));
+        else if (event.type === 'tool_start')
+          process.stderr.write(terminalText(`\n调用 ${event.name} (${event.callId})\n`));
+        else if (event.type === 'tool_result')
           process.stderr.write(
-            `任务停止：${event.reason}；${event.turns} 轮，${event.toolCalls} 次工具调用，${event.estimated ? '估算' : '报告'} token ${event.totalTokens}。\n`,
+            `${terminalText(event.result.name)}：${event.result.ok ? '成功' : terminalText(event.result.error?.code ?? '失败')}\n`,
           );
+        if (event.type === 'finish') {
+          if (!options.json) {
+            process.stdout.write('\n');
+            process.stderr.write(
+              `任务停止：${event.reason}；${event.turns} 轮，${event.toolCalls} 次工具调用，${event.estimated ? '估算' : '报告'} token ${event.totalTokens}。\n`,
+            );
+          }
+          if (event.reason !== 'completed') process.exitCode = 1;
         }
-        if (event.reason !== 'completed') process.exitCode = 1;
       }
+    } finally {
+      process.removeListener('SIGINT', cancel);
     }
   } finally {
-    process.removeListener('SIGINT', cancel);
+    await runtime.close();
   }
 }
