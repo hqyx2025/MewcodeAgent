@@ -4,6 +4,12 @@ import type { ToolDefinition } from './types.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolDefinition>();
+  withTools(additions: readonly ToolDefinition[]): ToolRegistry {
+    const scoped = new ToolRegistry();
+    for (const tool of this.tools.values()) scoped.register(tool);
+    for (const tool of additions) scoped.register(tool);
+    return scoped;
+  }
 
   register(tool: ToolDefinition): this {
     if (this.tools.has(tool.name)) throw new ToolError('TOOL_DUPLICATE', '工具名称重复。');

@@ -497,9 +497,27 @@ export class WorktreeManager {
     });
   }
   async acquire(id: string, agentId: string, signal: AbortSignal): Promise<WorktreeBinding> {
+    return this.acquireMember(id, undefined, agentId, signal);
+  }
+  /** Trusted coordinator continuation; never exposed to model worktree tools. */
+  async acquireMember(
+    id: string,
+    previousAgentId: string | undefined,
+    agentId: string,
+    signal: AbortSignal,
+  ): Promise<WorktreeBinding> {
     return withWorktreeLock(this.directory, this.repository, async () => {
       const report = await this.report(id, signal);
-      if (report.owner.status !== 'ready' || report.dirty || report.head !== report.owner.base)
+      const fresh =
+        report.owner.status === 'ready' &&
+        !report.dirty &&
+        report.head === report.owner.base &&
+        !previousAgentId;
+      const continued =
+        previousAgentId &&
+        report.owner.agentId === previousAgentId &&
+        ['completed', 'failed', 'cancelled'].includes(report.owner.status);
+      if (!fresh && !continued)
         throw new ToolError('WORKTREE_BUSY', '子任务只绑定ready且未修改的归属工作树。');
       const owner = {
         ...report.owner,

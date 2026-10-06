@@ -124,6 +124,30 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('teams')
+    .description('持久团队成员、依赖任务、消息与工作树交付；显式运行，不自动合并')
+    .argument(
+      '[action]',
+      'list/create/add/show/send/inbox/run/cancel/retry/recover/unlock/report',
+      'list',
+    )
+    .argument('[id]', '团队UUID')
+    .option('--file <file>', '项目内有界UTF-8 JSON团队/任务/消息文件')
+    .option('--task <id>', '明确重试的任务标识')
+    .option('--member <id>', '查看指定成员消息，默认coordinator')
+    .option('--content', 'show时明确查看任务目标、上下文和消息正文')
+    .option('--approve', '批准本次管理/运行；不批准孩子shell或绕过Plan/deny')
+    .option('--json', 'JSONL进度与结果')
+    .option('--audit-file <file>', '新的脱敏权限与Hook审计文件')
+    .action(async (action: string, id: string | undefined, _options: unknown, command: Command) => {
+      const loaded = await loadOptions({
+        ...command.optsWithGlobals<CLIOptions>(),
+        ...(action === 'run' ? { subagents: true } : {}),
+      });
+      const { manageTeams } = await import('./teams.js');
+      await manageTeams(loaded, action, id, command.opts());
+    });
+  program
     .command('worktrees')
     .description('管理归属工作树、查看diff/冲突和执行隔离子任务；不自动安装依赖或合并')
     .argument('[action]', 'list/create/show/diff/reuse/remove/recover/unlock/delegate', 'list')

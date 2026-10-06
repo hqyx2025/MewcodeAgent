@@ -36,7 +36,12 @@ export class MockProvider implements LLMProvider {
       this.checkCancelled(signal);
       const tool = request.messages.findLast((message) => message.role === 'tool');
       const result = tool
-        ? (JSON.parse(tool.content) as { name: string; ok: boolean; data?: { path?: string } })
+        ? (JSON.parse(tool.content) as {
+            name: string;
+            ok: boolean;
+            error?: { code: string };
+            data?: { path?: string };
+          })
         : undefined;
       if (!result && request.tools?.some((item) => item.name === 'WriteFile')) {
         yield {
@@ -52,7 +57,7 @@ export class MockProvider implements LLMProvider {
         yield { type: 'finish', reason: 'tool_calls' };
       } else if (
         result?.name === 'WriteFile' &&
-        result.ok &&
+        (result.ok || result.error?.code === 'FILE_CONFLICT') &&
         request.tools?.some((item) => item.name === 'ReadFile')
       ) {
         yield {
@@ -67,9 +72,17 @@ export class MockProvider implements LLMProvider {
         yield {
           type: 'text_delta',
           text: JSON.stringify({
-            summary: result?.ok
-              ? '离线模拟在隔离工作树写入演示文件；不解释任意任务。'
-              : '离线模拟未完成写入，请检查权限或工具白名单。',
+            summary:
+              result?.ok &&
+              request.messages.some(
+                (message) =>
+                  message.role === 'tool' &&
+                  JSON.parse(message.content).error?.code === 'FILE_CONFLICT',
+              )
+                ? '离线模拟核验已有演示文件，保留既有内容；不解释任意任务。'
+                : result?.ok
+                  ? '离线模拟在隔离工作树写入演示文件；不解释任意任务。'
+                  : '离线模拟未完成写入，请检查权限或工具白名单。',
             evidence:
               result?.name === 'ReadFile' && result.ok
                 ? [{ path: 'mewcode-demo.txt', line: 1, note: '实际读取的演示文件' }]

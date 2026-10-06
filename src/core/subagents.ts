@@ -45,9 +45,10 @@ export interface SubagentProgress {
   tokens: number;
 }
 export interface SubagentPoolOptions {
+  identity?: (task: PoolTask) => string;
   execution?: {
     schema: z.ZodType<{ tasks: PoolTask[] }>;
-    name: 'WorktreeTask';
+    name: 'WorktreeTask' | 'TeamTask';
     begin(
       task: PoolTask,
       parent: ToolExecutor,
@@ -57,6 +58,7 @@ export interface SubagentPoolOptions {
       executor: ToolExecutor;
       prompt: string;
       worktreeId: string;
+      maxTotalTokens?: number;
       observe(result: Readonly<ToolResult>): void;
       finish(result: SubagentResult): Promise<void>;
     }>;
@@ -188,7 +190,9 @@ export class SubagentPool {
     const parsed = this.schema.safeParse(input);
     if (!parsed.success) throw new AppError('SUBAGENT_INVALID', '委派参数不符合Schema。');
     const promises = parsed.data.tasks.map((task) => {
-      const agentId = randomUUID();
+      const agentId = this.options.identity?.(task) ?? randomUUID();
+      if (!/^[\w.-]{1,128}$/.test(agentId))
+        throw new AppError('SUBAGENT_INVALID', '可信子任务身份格式无效。');
       const reject = (code: string) => {
         const result = this.empty(task.id, agentId, 'rejected', code);
         this.emit(task.id, agentId, result.status);
@@ -338,17 +342,25 @@ export class SubagentPool {
           execution.executor,
           execution.prompt,
           execution.observe,
+          execution.maxTotalTokens,
         );
         result.worktreeId = execution.worktreeId;
         this.fit(result, this.settings.resultBytes);
         await execution.finish(result);
         return result;
       } catch (error) {
+        const cancelled = job.parentSignal.aborted;
         const result = this.empty(
           job.task.id,
           job.agentId,
-          job.signal.aborted ? 'cancelled' : 'failed',
-          error instanceof ToolError ? error.code : 'WORKTREE_FAILED',
+          cancelled ? 'cancelled' : 'failed',
+          cancelled
+            ? 'CANCELLED'
+            : job.signal.aborted
+              ? 'SUBAGENT_TIMEOUT'
+              : error instanceof ToolError
+                ? error.code
+                : 'WORKTREE_FAILED',
         );
         if (execution) {
           result.worktreeId = execution.worktreeId;
@@ -364,6 +376,7 @@ export class SubagentPool {
     boundExecutor?: ToolExecutor,
     customPrompt?: string,
     observe?: (result: Readonly<ToolResult>) => void,
+    taskTokens?: number,
   ): Promise<SubagentResult> {
     try {
       if (job.signal.aborted) throw new AppError('CANCELLED', '子任务已取消。');
@@ -387,6 +400,7 @@ export class SubagentPool {
         maxTotalTokens: Math.min(
           this.settings.maxTotalTokens,
           limits.maxTotalTokens ?? this.options.budget.limit,
+          taskTokens ?? this.options.budget.limit,
         ),
         context: limits.context ?? defaultContext,
         ...(limits.sensitiveValues ? { sensitiveValues: limits.sensitiveValues } : {}),

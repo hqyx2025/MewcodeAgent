@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M14 Worktree 已完成，Windows/Linux CI与独立安装包通过**，支持既有流式对话、编程工具、Agent Loop、指令、权限、MCP、会话、记忆、命令、Skill、Hook、只读子任务，以及归属 Git 工作树和隔离写入子任务。边界与检查结果见[M14规格](docs/modules/M14/spec.md)和[验收记录](docs/modules/M14/checklist.md)，下一模块为M15 Agent Teams。
+当前阶段：**M15 Agent Teams 已实现，正在完成验收**，支持既有模块、归属 Git 工作树，以及持久成员、依赖任务看板、有界消息、累计预算和显式中断恢复。边界与实际检查结果见[M15规格](docs/modules/M15/spec.md)和[验收记录](docs/modules/M15/checklist.md)，下一模块为M16整体调优与发布。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M14/spec.md)、[任务](docs/modules/M14/tasks.md)与[验收记录](docs/modules/M14/checklist.md)可直接查看；M01–M13 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M15/spec.md)、[任务](docs/modules/M15/tasks.md)与[验收记录](docs/modules/M15/checklist.md)可直接查看；M01–M14 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -178,6 +178,50 @@ mock 只在每个工作树写入并读取固定 mewcode-demo.txt，演示协议�
 常规Agent用 `run --worktrees` 明确开启，默认最多4个未回收工作树。show/diff展示归属、变化、冲突及真实Bash退出信息；不把模型自述当成测试结果。修改、未跟踪/忽略文件、子模块或活动任务阻止回收，保留路径；干净已提交交付可回收目录，分支仍保留。停止进程后可明确 recover/unlock，不能抢占活进程。
 
 不自动合并或安装依赖，Git refs/对象仍共享，授权的任意shell有主机权限。依赖准备、审阅提交与合并由用户决定；[完整规格与恢复限制](docs/modules/M14/spec.md)。
+
+## 团队成员与依赖任务
+
+先创建两个干净工作树，将返回的 UUID 填入项目内 team.json。示例中的 reviewer 使用自己的工作树，收到前序摘要和工作树 ID；需要审阅完整交付时使用 `teams report`：
+
+```json
+{
+  "name": "module-team",
+  "members": [
+    { "id": "editor", "role": "实现模块", "worktree": "第一个UUID" },
+    { "id": "reviewer", "role": "审阅交付", "worktree": "第二个UUID" }
+  ],
+  "tasks": [
+    { "id": "implement", "member": "editor", "goal": "检查并修复模块" },
+    {
+      "id": "review",
+      "member": "reviewer",
+      "goal": "检查前序交付摘要",
+      "dependsOn": ["implement"],
+      "tools": ["ReadFile", "Glob", "Grep", "TeamInbox", "TeamSend"]
+    }
+  ]
+}
+```
+
+```powershell
+npm run dev -- teams create --file team.json --approve
+npm run dev -- teams show <团队UUID>
+npm run dev -- --provider mock --model mock-v1 --mode accept-edits teams run <团队UUID> --approve --json
+npm run dev -- teams report <团队UUID>
+npm run dev -- teams add <团队UUID> --file more-tasks.json --approve
+npm run dev -- teams send <团队UUID> --file message.json --approve
+npm run dev -- teams inbox <团队UUID> --member editor
+npm run dev -- teams cancel <团队UUID> --approve
+npm run dev -- teams retry <团队UUID> --task implement --approve
+npm run dev -- teams recover <团队UUID> --approve
+npm run bench:teams
+```
+
+`more-tasks.json` 使用同样的 `tasks` 数组，每次最多新增4项；`message.json` 为 `{"messageId":"新UUID","to":"editor","task":"implement","text":"审阅数据"}`，task可省略。协调者为本地确定性调度器，消息不会创建或执行任务。mock只演示固定文件写入/核验，不完成任意目标；上述只读review任务需真实provider才会分析交付，mock仅返回演示摘要。
+
+每团队最多4成员、32生命周期任务、128消息，默认消息上限64。默认并发2、总预算60k、每任务40k、6轮/30秒；仍受可信 subagents 和 CLI 限制，默认每批最多8任务。相同成员串行，依赖失败标记blocked，批次上限留下queued供下一次明确run。完成任务不重放，成员身份与工作树交付跨run保存，每任务模型上下文独立；既有父权限、Hook与工具白名单继续生效。`--approve`只批准管理/运行，孩子shell仍需批准。
+
+`show`默认省略目标、上下文和消息正文，`--content`明确查看；结果摘要与观察证据会显示。`report`含diff、真实Bash检查和同名变更路径，需人工审阅合并。同主机原进程确定消失后才能recover/unlock；未知任务记为uncertain并保守消耗原预留预算，明确retry才可再执行。主仓库外的归属记录最多64团队、每条512KiB；没有后台成员进程或自动合并。[完整边界](docs/modules/M15/spec.md)。
 
 ## 模型执行任务
 

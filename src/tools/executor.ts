@@ -19,6 +19,7 @@ import type {
   ToolContext,
   ToolMode,
   ToolResult,
+  ToolDefinition,
 } from './types.js';
 
 export interface ExecutorOptions {
@@ -109,6 +110,19 @@ export class ToolExecutor {
   async fork(options: Omit<ExecutorOptions, 'root'> = {}): Promise<ToolExecutor> {
     return this.forkAt(this.paths.root, options);
   }
+  async forkWithTools(
+    additions: readonly ToolDefinition[],
+    options: Omit<ExecutorOptions, 'root'> = {},
+  ): Promise<ToolExecutor> {
+    return this.forkAt(
+      this.paths.root,
+      {
+        ...options,
+        ...(!options.approve && this.options.approve ? { approve: this.options.approve } : {}),
+      },
+      this.registry.withTools(additions),
+    );
+  }
   async forkForWorktree(
     binding: WorktreeBinding,
     options: Omit<ExecutorOptions, 'root' | 'workspaceBinding' | 'agentId'> = {},
@@ -126,6 +140,7 @@ export class ToolExecutor {
   private async forkAt(
     root: string,
     options: Omit<ExecutorOptions, 'root'>,
+    registry = this.registry,
   ): Promise<ToolExecutor> {
     const mode = options.mode ?? this.mode;
     if (modeRank(mode) > modeRank(this.mode))
@@ -137,7 +152,7 @@ export class ToolExecutor {
       (options.rgExecutable && options.rgExecutable !== (this.options.rgExecutable ?? 'rg'))
     )
       throw new ToolError('TOOL_PERMISSION', '子执行器不能替换父执行程序。');
-    const child = await ToolExecutor.create(this.registry, {
+    const child = await ToolExecutor.create(registry, {
       ...options,
       ...(this.options.hooks ? { hooks: this.options.hooks } : {}),
       shell: this.shell,

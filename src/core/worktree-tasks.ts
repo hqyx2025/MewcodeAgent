@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { subtaskSchema } from './subagent-schema.js';
 import type { SubagentPoolOptions } from './subagents.js';
 import type { WorktreeManager } from '../tools/worktrees.js';
+import type { WorktreeBinding } from '../tools/worktree-schema.js';
 import { worktreeIdSchema } from '../tools/worktree-schema.js';
 import type { worktreeChecksSchema } from '../tools/worktree-schema.js';
 import { ToolError } from '../tools/errors.js';
@@ -31,6 +32,11 @@ export const worktreeDelegationSchema = z.strictObject({
 export function worktreeExecution(
   manager: WorktreeManager,
   approve?: (request: ApprovalRequest, signal: AbortSignal) => Promise<ApprovalAnswer>,
+  acquire?: (
+    task: Parameters<NonNullable<SubagentPoolOptions['execution']>['begin']>[0],
+    agentId: string,
+    signal: AbortSignal,
+  ) => Promise<WorktreeBinding>,
 ): NonNullable<SubagentPoolOptions['execution']> {
   return {
     schema: worktreeDelegationSchema,
@@ -38,7 +44,9 @@ export function worktreeExecution(
     begin: async (task, parent, agentId, signal) => {
       if (parent.mode === 'plan' || !task.worktree)
         throw new ToolError('TOOL_PERMISSION', 'Plan或未绑定工作树不能启动写入子任务。');
-      const binding = await manager.acquire(task.worktree, agentId, signal);
+      const binding = acquire
+        ? await acquire(task, agentId, signal)
+        : await manager.acquire(task.worktree, agentId, signal);
       try {
         const executor = await parent.forkForWorktree(
           binding,

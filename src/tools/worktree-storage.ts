@@ -3,6 +3,7 @@ import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { parse, relative, resolve, sep, join } from 'node:path';
 import { hostname } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ToolError } from './errors.js';
 const queues = new Map<string, Promise<void>>();
 
@@ -56,8 +57,13 @@ export async function readOwned(path: string, limit = 64 * 1024): Promise<string
     await file.close();
   }
 }
-export async function writeOwned(path: string, text: string, newFile = false): Promise<void> {
-  if (!newFile) await readOwned(path);
+export async function writeOwned(
+  path: string,
+  text: string,
+  newFile = false,
+  limit = 64 * 1024,
+): Promise<void> {
+  const before = !newFile ? await readOwned(path, limit) : undefined;
   const temporary = `${path}.${randomUUID()}.tmp`;
   const file = await open(newFile ? path : temporary, 'wx', 0o600);
   try {
@@ -68,8 +74,22 @@ export async function writeOwned(path: string, text: string, newFile = false): P
   }
   if (!newFile) {
     try {
-      await readOwned(path);
-      await rename(temporary, path);
+      for (let attempt = 0; ; attempt++) {
+        if ((await readOwned(path, limit)) !== before)
+          throw new ToolError('WORKTREE_OWNER', '写入期间归属记录已变化。');
+        try {
+          await rename(temporary, path);
+          break;
+        } catch (error) {
+          if (
+            process.platform !== 'win32' ||
+            attempt >= 5 ||
+            !['EPERM', 'EBUSY', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '')
+          )
+            throw error;
+          await delay(10 * 2 ** attempt);
+        }
+      }
     } finally {
       await unlink(temporary).catch(() => {});
     }
@@ -80,6 +100,7 @@ export async function withWorktreeLock<T>(
   directory: string,
   repository: string,
   fn: () => Promise<T>,
+  app = 'mewcode-worktrees',
 ): Promise<T> {
   const previous = queues.get(directory) ?? Promise.resolve();
   let release!: () => void;
@@ -89,17 +110,22 @@ export async function withWorktreeLock<T>(
   queues.set(directory, tail);
   await previous;
   try {
-    return await locked(directory, repository, fn);
+    return await locked(directory, repository, fn, app);
   } finally {
     release();
     if (queues.get(directory) === tail) queues.delete(directory);
   }
 }
-async function locked<T>(directory: string, repository: string, fn: () => Promise<T>): Promise<T> {
+async function locked<T>(
+  directory: string,
+  repository: string,
+  fn: () => Promise<T>,
+  app: string,
+): Promise<T> {
   await safeDirectory(directory);
   const path = join(directory, 'manager.lock');
   const text = JSON.stringify({
-    app: 'mewcode-worktrees',
+    app,
     repository,
     host: hostname(),
     pid: process.pid,

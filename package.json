@@ -45,6 +45,7 @@
     "bench:hooks": "tsx scripts/benchmark-hooks.ts",
     "bench:subagents": "tsx scripts/benchmark-subagents.ts",
     "bench:worktrees": "tsx scripts/benchmark-worktrees.ts",
+    "bench:teams": "tsx scripts/benchmark-teams.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:boundaries && npm test && npm run build"
   },

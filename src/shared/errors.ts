@@ -1,4 +1,6 @@
 export type ErrorCode =
+  | 'TEAM_INPUT'
+  | 'TEAM_LIMIT'
   | 'CONFIG_INVALID'
   | 'CONFIG_READ'
   | 'INVALID_WORKDIR'

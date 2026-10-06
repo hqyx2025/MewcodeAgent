@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -252,6 +253,87 @@ registerHooks({
     );
   }
   assert.equal(await readFile(join(worktreeProject, 'same.txt'), 'utf8'), 'primary\n');
+  const teamTrees = [];
+  for (const task of ['alice', 'bob']) {
+    const created = JSON.parse(
+      (await run(['--cwd', worktreeProject, 'worktrees', 'create', '--task', task, '--approve']))
+        .stdout,
+    );
+    assert(created.result.ok);
+    teamTrees.push(
+      JSON.parse(created.result.content) as { id: string; path: string; branch: string },
+    );
+  }
+  const teamOutput = (stdout: string) =>
+    JSON.parse(JSON.parse(stdout.trim().split('\n').at(-1)!).result.content);
+  const teamRun = (args: string[]) =>
+    run(['--cwd', worktreeProject, '--provider', 'mock', ...args]);
+  await writeFile(
+    join(worktreeProject, '团队.json'),
+    JSON.stringify({
+      name: 'installed-team',
+      members: teamTrees.map((tree, index) => ({
+        id: ['alice', 'bob'][index],
+        role: 'offline fixture',
+        worktree: tree.id,
+      })),
+      tasks: [
+        { id: 'first', member: 'alice', goal: 'installed-team-private-goal' },
+        { id: 'second', member: 'bob', goal: 'offline fixture', dependsOn: ['first'] },
+      ],
+    }),
+  );
+  const team = teamOutput(
+    (await teamRun(['teams', 'create', '--file', '团队.json', '--approve'])).stdout,
+  );
+  const teamMetadata = (await teamRun(['teams', 'show', team.id])).stdout;
+  assert(!teamMetadata.includes('installed-team-private-goal'));
+  await writeFile(
+    join(worktreeProject, '消息.json'),
+    JSON.stringify({
+      messageId: randomUUID(),
+      to: 'alice',
+      task: 'first',
+      text: 'installed coordination data',
+    }),
+  );
+  for (let i = 0; i < 2; i++)
+    await teamRun(['teams', 'send', team.id, '--file', '消息.json', '--approve']);
+  assert.equal(
+    teamOutput((await teamRun(['teams', 'inbox', team.id, '--member', 'alice'])).stdout).length,
+    1,
+  );
+  const delivery = teamOutput(
+    (await teamRun(['--mode', 'accept-edits', 'teams', 'run', team.id, '--approve', '--json']))
+      .stdout,
+  );
+  assert(delivery.team.tasks.every((task: { status: string }) => task.status === 'completed'));
+  assert.equal(delivery.budget.reserved, 0);
+  assert.equal(delivery.metrics.claims, 2);
+  const replay = teamOutput(
+    (await teamRun(['--mode', 'accept-edits', 'teams', 'run', team.id, '--approve'])).stdout,
+  );
+  assert.equal(replay.metrics.modelRequests, 0);
+  assert.equal(replay.team.usedTokens, delivery.team.usedTokens);
+  const teamReport = teamOutput((await teamRun(['teams', 'report', team.id])).stdout);
+  assert.equal(teamReport.merge, 'manual-review-required');
+  assert.deepEqual(teamReport.overlappingPaths, [
+    { path: 'mewcode-demo.txt', members: ['alice', 'bob'] },
+  ]);
+  for (const tree of teamTrees) {
+    assert(
+      (await readFile(join(tree.path, 'mewcode-demo.txt'), 'utf8')).includes('离线工作树隔离演示'),
+    );
+    await git(['add', 'mewcode-demo.txt'], tree.path);
+    await git(['commit', '-m', 'reviewed offline team fixture'], tree.path);
+    await teamRun(['worktrees', 'remove', tree.id, '--approve']);
+    assert(
+      (await git(['show-ref', '--verify', `refs/heads/${tree.branch}`])).stdout.includes(
+        tree.branch,
+      ),
+    );
+  }
+  assert.equal(await readFile(join(worktreeProject, 'same.txt'), 'utf8'), 'primary\n');
   await writeFile(join(installation, 'AGENTS.md'), 'package-guidance-must-not-print');
   const promptMetadata = JSON.parse((await run(['--mode', 'plan', 'prompt', '--json'])).stdout) as {
     version: string;
@@ -489,6 +571,8 @@ registerHooks({
         subagents: 'passed (offline independent read-only children and parent delegation)',
         worktrees:
           'passed (installed Git fixture, two isolated writes, dirty cleanup refusal, reviewed commits, normal cleanup with retained branches)',
+        teams:
+          'passed (dependent persistent members, message deduplication, isolated writes, report overlap, zero-request replay, reviewed cleanup)',
         unpackedBytes: archive.unpackedSize,
         demoTotalMs: Number(demoTotalMs.toFixed(2)),
         entryBytes: (await stat(entry)).size,
