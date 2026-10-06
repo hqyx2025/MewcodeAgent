@@ -18,6 +18,7 @@ import type { TokenBudget } from './token-budget.js';
 import type { LLMRequest } from '../providers/types.js';
 
 export interface AgentOptions {
+  worktreeTaskIds?: () => readonly string[];
   subagentRecoveryLimit?: number;
   subagentIds?: () => readonly string[];
   accounting?: TokenBudget;
@@ -261,7 +262,8 @@ export class AgentLoop {
         await this.options.session.commit(
           {
             mode: this.executor.mode,
-            ...(this.options.subagentRecoveryLimit && pending.some((call) => call.name === 'Task')
+            ...(this.options.subagentRecoveryLimit &&
+            pending.some((call) => ['Task', 'WorktreeTask'].includes(call.name))
               ? {
                   pendingSubagentTokens: Math.min(
                     this.options.subagentRecoveryLimit,
@@ -272,6 +274,13 @@ export class AgentLoop {
               : {}),
             ...(this.options.subagentIds || restored?.subagentIds
               ? { subagentIds: [...(this.options.subagentIds?.() ?? restored?.subagentIds ?? [])] }
+              : {}),
+            ...(this.options.worktreeTaskIds || restored?.worktreeTaskIds
+              ? {
+                  worktreeTaskIds: [
+                    ...(this.options.worktreeTaskIds?.() ?? restored?.worktreeTaskIds ?? []),
+                  ],
+                }
               : {}),
             messages: structuredClone(messages),
             seenIds: [...seenIds],

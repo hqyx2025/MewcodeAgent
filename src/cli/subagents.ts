@@ -1,16 +1,14 @@
-import { constants } from 'node:fs';
-import { open } from 'node:fs/promises';
 import type { LoadedConfiguration } from '../config/load.js';
 import { SubagentPool } from '../core/subagents.js';
 import { TokenBudget } from '../core/token-budget.js';
 import { createProvider } from '../providers/create.js';
-import { AppError } from '../shared/errors.js';
 import { createBuiltinRegistry } from '../tools/builtins.js';
 import { ToolExecutor } from '../tools/executor.js';
 import { permissionRuntime } from './permissions.js';
 import { memoryProtection } from './memory-runtime.js';
 import { hookRuntime } from './hooks.js';
 import { printSubagentProgress } from './subagent-progress.js';
+import { readTaskFile } from './task-file.js';
 
 export async function delegateTasks(
   loaded: LoadedConfiguration,
@@ -39,29 +37,7 @@ export async function delegateTasks(
       ...(loaded.settings.hooks.length ? { hooks: hooks.handle } : {}),
       timeoutMs: loaded.settings.limits.timeoutMs,
     });
-    let input: unknown;
-    try {
-      const path = await executor.paths.resolve(options.tasksFile);
-      if (!executor.allowsRead('ReadFile', path)) throw new Error('Denied');
-      const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-      try {
-        const stat = await file.stat();
-        if (!stat.isFile() || stat.size > 32 * 1024) throw new Error('Size');
-        const bytes = Buffer.alloc(32 * 1024 + 1);
-        const { bytesRead } = await file.read(bytes, 0, bytes.length, 0);
-        if (bytesRead > 32 * 1024) throw new Error('Size');
-        input = JSON.parse(
-          new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, bytesRead)),
-        );
-      } finally {
-        await file.close();
-      }
-    } catch {
-      throw new AppError(
-        'SUBAGENT_INVALID',
-        '任务文件不可读、被禁止、超过32KiB或不是有效UTF-8 JSON。',
-      );
-    }
+    const input = await readTaskFile(executor, options.tasksFile);
     const budget = new TokenBudget(200_000);
     const pool = new SubagentPool(registry, {
       settings: loaded.settings.subagents,

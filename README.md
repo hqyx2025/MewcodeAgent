@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M13 SubAgent 已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、记忆、命令、按需技能/资源、生命周期Hook与显式只读子任务。M13 的边界见[规格](docs/modules/M13/spec.md)与[验收记录](docs/modules/M13/checklist.md)，下一模块为M14 Worktree。
+当前阶段：**M14 Worktree 已实现，最终验收中**，支持既有流式对话、编程工具、Agent Loop、指令、权限、MCP、会话、记忆、命令、Skill、Hook、只读子任务，以及归属 Git 工作树和隔离写入子任务。边界与检查结果见[M14规格](docs/modules/M14/spec.md)和[验收记录](docs/modules/M14/checklist.md)，下一模块为M15 Agent Teams。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M13/spec.md)、[任务](docs/modules/M13/tasks.md)与[验收记录](docs/modules/M13/checklist.md)可直接查看；M01–M12 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M14/spec.md)、[任务](docs/modules/M14/tasks.md)与[验收记录](docs/modules/M14/checklist.md)可直接查看；M01–M13 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -145,7 +145,39 @@ npm run bench:subagents
 
 `run` 默认关闭委派；用户通过 `--subagents` 或用户配置开启后，模型可以调用 `Task`。`delegate` 是用户明确提交任务的入口，每批最多4项，整个池默认最多8项、并发2项。项目配置只能收紧限额。Mock仅演示协议和目录列表；真实分析需配置已有provider。
 
-孩子固定Plan、深度1，仅开放ReadFile/Glob/Grep，继承父deny与Hook边界；父历史、记忆、Skill和审批授权不复制。结果只含状态、用量、摘要及核验后的观察引用；失败不会丢失其他任务结果，重试需新id和retryOf。父取消传播到队列与运行任务，父子共享token预算，缺少usage按保守估算记账，父汇总成本也计入。保存会话后保留任务id并阻止恢复重放；子会话不独立恢复。写入子任务与工作树隔离留待M14。[配置、证据核验、预算与恢复限制](docs/modules/M13/spec.md)。
+只读孩子固定Plan、深度1，仅开放ReadFile/Glob/Grep，继承父deny与Hook边界；父历史、记忆、Skill和审批授权不复制。结果含状态、用量、摘要及核验后的观察引用；失败不会丢失其他任务结果，重试需新id和retryOf。父取消传播到队列与运行任务，父子共享token预算，缺少usage按保守估算记账，父汇总成本也计入。保存会话后保留任务id并阻止恢复重放；子会话不独立恢复。[配置、证据核验、预算与恢复限制](docs/modules/M13/spec.md)。
+
+## 隔离工作树与写入子任务
+
+需要 Git ≥2.40，从主仓库根目录运行。创建固定提交的独立分支和工作树，主树未提交内容不复制。示例使用 mock，不需要模型密钥：
+
+```powershell
+npm run dev -- worktrees create --task fix-one --approve
+npm run dev -- worktrees create --task fix-two --approve
+npm run dev -- worktrees list
+npm run dev -- worktrees show <UUID>
+npm run dev -- worktrees diff <UUID>
+npm run dev -- --provider mock --model mock-v1 --mode accept-edits worktrees delegate --tasks-file tasks.json --approve --json
+npm run dev -- worktrees remove <UUID> --approve
+npm run bench:worktrees
+```
+
+项目内 tasks.json 用创建结果的UUID绑定，例如：
+
+```json
+{
+  "tasks": [
+    { "id": "one", "worktree": "第一个UUID", "goal": "检查并修复模块一" },
+    { "id": "two", "worktree": "第二个UUID", "goal": "检查并修复模块二" }
+  ]
+}
+```
+
+mock 只在每个工作树写入并读取固定 mewcode-demo.txt，演示协议，不完成任意目标。真实 provider 的任务默认开放文件工具；Bash需明确加入tools。文件根和Bash cwd绑定工作树，仍受父权限、Hook和共享预算约束。`--approve`只批准管理/委派，不批准孩子shell；Plan与deny不可绕过。
+
+常规Agent用 `run --worktrees` 明确开启，默认最多4个未回收工作树。show/diff展示归属、变化、冲突及真实Bash退出信息；不把模型自述当成测试结果。修改、未跟踪/忽略文件、子模块或活动任务阻止回收，保留路径；干净已提交交付可回收目录，分支仍保留。停止进程后可明确 recover/unlock，不能抢占活进程。
+
+不自动合并或安装依赖，Git refs/对象仍共享，授权的任意shell有主机权限。依赖准备、审阅提交与合并由用户决定；[完整规格与恢复限制](docs/modules/M14/spec.md)。
 
 ## 模型执行任务
 

@@ -147,6 +147,111 @@ registerHooks({
     .map((line) => JSON.parse(line));
   assert(delegated.some((item) => item.type === 'subagent' && item.state === 'completed'));
   assert.equal(delegated.at(-1).reason, 'completed');
+  const worktreeProject = join(temporary, '隔离 Git 项目');
+  await mkdir(worktreeProject);
+  const git = (args: string[], cwd = worktreeProject) =>
+    exec(
+      'git',
+      [
+        '-c',
+        'core.hooksPath=' + join(temporary, 'no-hooks'),
+        '-c',
+        'core.fsmonitor=false',
+        '-c',
+        'commit.gpgSign=false',
+        ...args,
+      ],
+      {
+        cwd,
+        env: {
+          ...env,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+        },
+        timeout: 10_000,
+        windowsHide: true,
+      },
+    );
+  await git(['init', '-b', 'main']);
+  await git(['config', 'user.name', 'Fixture']);
+  await git(['config', 'user.email', 'fixture@example.invalid']);
+  await writeFile(join(worktreeProject, 'same.txt'), 'primary\n');
+  await git(['add', 'same.txt']);
+  await git(['commit', '-m', 'base']);
+  const worktrees = [];
+  for (const task of ['one', 'two']) {
+    const created = JSON.parse(
+      (await run(['--cwd', worktreeProject, 'worktrees', 'create', '--task', task, '--approve']))
+        .stdout,
+    );
+    assert(created.result.ok);
+    worktrees.push(
+      JSON.parse(created.result.content) as { id: string; path: string; branch: string },
+    );
+  }
+  await writeFile(
+    join(worktreeProject, 'tasks.json'),
+    JSON.stringify({
+      tasks: worktrees.map((item, index) => ({
+        id: `installed-${index}`,
+        worktree: item.id,
+        goal: '离线写入验证',
+      })),
+    }),
+  );
+  const written = (
+    await run([
+      '--cwd',
+      worktreeProject,
+      '--mode',
+      'accept-edits',
+      'worktrees',
+      'delegate',
+      '--tasks-file',
+      'tasks.json',
+      '--approve',
+      '--json',
+    ])
+  ).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert(
+    JSON.parse(written.at(-1).result.content).tasks.every(
+      (item: { status: string }) => item.status === 'completed',
+    ),
+  );
+  assert.equal(written.at(-1).budget.reserved, 0);
+  for (const item of worktrees) {
+    assert(
+      (await readFile(join(item.path, 'mewcode-demo.txt'), 'utf8')).includes('离线工作树隔离演示'),
+    );
+    const report = JSON.parse(
+      JSON.parse((await run(['--cwd', worktreeProject, 'worktrees', 'show', item.id])).stdout)
+        .result.content,
+    );
+    assert(report.dirty && report.owner.status === 'completed');
+    const refused = (await run([
+      '--cwd',
+      worktreeProject,
+      'worktrees',
+      'remove',
+      item.id,
+      '--approve',
+    ]).catch((error: unknown) => error)) as { code: number; stdout: string };
+    assert.equal(refused.code, 1);
+    assert(refused.stdout.includes('WORKTREE_DIRTY'));
+    // Commit the reviewed fixture before normal cleanup; never force-remove a dirty tree.
+    await git(['add', 'mewcode-demo.txt'], item.path);
+    await git(['commit', '-m', 'offline fixture delivery'], item.path);
+    await run(['--cwd', worktreeProject, 'worktrees', 'remove', item.id, '--approve']);
+    assert(
+      (await git(['show-ref', '--verify', `refs/heads/${item.branch}`])).stdout.includes(
+        item.branch,
+      ),
+    );
+  }
+  assert.equal(await readFile(join(worktreeProject, 'same.txt'), 'utf8'), 'primary\n');
   await writeFile(join(installation, 'AGENTS.md'), 'package-guidance-must-not-print');
   const promptMetadata = JSON.parse((await run(['--mode', 'plan', 'prompt', '--json'])).stdout) as {
     version: string;
@@ -381,6 +486,9 @@ registerHooks({
         helpMaxMs: Number(timings[6]?.toFixed(2)),
         packageBytes: archive.size,
         hooks: 'passed (inert inspection, approved Node snapshot, Unicode source path, hook audit)',
+        subagents: 'passed (offline independent read-only children and parent delegation)',
+        worktrees:
+          'passed (installed Git fixture, two isolated writes, dirty cleanup refusal, reviewed commits, normal cleanup with retained branches)',
         unpackedBytes: archive.unpackedSize,
         demoTotalMs: Number(demoTotalMs.toFixed(2)),
         entryBytes: (await stat(entry)).size,

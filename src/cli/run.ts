@@ -22,8 +22,11 @@ import { hookRuntime } from './hooks.js';
 import { SubagentPool } from '../core/subagents.js';
 import { TokenBudget } from '../core/token-budget.js';
 import { printSubagentProgress } from './subagent-progress.js';
+import { WorktreeManager } from '../tools/worktrees.js';
+import { worktreeExecution } from '../core/worktree-tasks.js';
 
 export interface RunCLIOptions {
+  worktrees?: boolean;
   json?: boolean;
   maxTurns?: string;
   maxTotalTokens?: string;
@@ -294,13 +297,14 @@ export async function runAgentTask(
       audit: runtime.audit,
     });
     skills.bind(executor);
-    const accounting = loaded.settings.subagents.enabled
-      ? new TokenBudget(
-          maxTotalTokens,
-          (restored?.totalTokens ?? 0) + (restored?.pendingSubagentTokens ?? 0),
-          (restored?.estimated ?? false) || Boolean(restored?.pendingSubagentTokens),
-        )
-      : undefined;
+    const accounting =
+      loaded.settings.subagents.enabled || options.worktrees
+        ? new TokenBudget(
+            maxTotalTokens,
+            (restored?.totalTokens ?? 0) + (restored?.pendingSubagentTokens ?? 0),
+            (restored?.estimated ?? false) || Boolean(restored?.pendingSubagentTokens),
+          )
+        : undefined;
     const pool = accounting
       ? new SubagentPool(registry, {
           settings: loaded.settings.subagents,
@@ -320,13 +324,43 @@ export async function runAgentTask(
         })
       : undefined;
     pool?.bind(executor);
+    let writable: SubagentPool | undefined;
+    if (options.worktrees && accounting) {
+      const manager = await WorktreeManager.open(loaded.cwd, loaded.paths.storageDirectory, {
+        sensitiveValues: secrets,
+        resultBytes: loaded.settings.context.toolResultBytes,
+      });
+      manager.register(registry);
+      writable = new SubagentPool(registry, {
+        settings: { ...loaded.settings.subagents, enabled: true },
+        budget: accounting,
+        provider: () => createProvider(loaded.settings),
+        agent: {
+          model: loaded.settings.provider.model,
+          maxTurns,
+          timeoutMs,
+          maxTotalTokens,
+          maxOutputTokens: loaded.settings.limits.maxOutputTokens,
+          context: loaded.settings.context,
+          sensitiveValues: secrets,
+        },
+        execution: worktreeExecution(manager, approveTool),
+        ...(restored
+          ? { history: restored.messages, usedIds: restored.worktreeTaskIds ?? [] }
+          : {}),
+        progress: (event) => printSubagentProgress(event, options.json ?? false),
+      });
+      writable.bind(executor);
+    }
     const agent = new AgentLoop(provider, executor, {
+      ...(writable ? { worktreeTaskIds: () => writable!.usedIds } : {}),
       ...(accounting
         ? {
             accounting,
             aggregateTokens: true,
             subagentIds: () => pool!.usedIds,
-            subagentRecoveryLimit: loaded.settings.subagents.maxTotalTokens,
+            subagentRecoveryLimit:
+              loaded.settings.subagents.maxTotalTokens * (options.worktrees ? 2 : 1),
           }
         : {}),
       initializeTools: async (setupSignal) => {

@@ -124,6 +124,26 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('worktrees')
+    .description('管理归属工作树、查看diff/冲突和执行隔离子任务；不自动安装依赖或合并')
+    .argument('[action]', 'list/create/show/diff/reuse/remove/recover/unlock/delegate', 'list')
+    .argument('[id]', '归属工作树UUID')
+    .option('--task <id>', '创建时的任务标识（小写字母/数字/横线）')
+    .option('--base <ref>', '创建/复用的基准commit/ref，默认HEAD')
+    .option('--branch <name>', '新分支，必须使用codex/前缀，不覆盖已有分支')
+    .option('--tasks-file <file>', '隔离委派的项目内UTF-8 JSON任务文件')
+    .option('--approve', '明确授权本次管理/委派动作；不授权孩子的shell或覆盖Plan/deny')
+    .option('--json', '输出JSONL进度和结果')
+    .option('--audit-file <file>', '写入新的脱敏权限与Hook审计JSONL')
+    .action(async (action: string, id: string | undefined, _options: unknown, command: Command) => {
+      const loaded = await loadOptions({
+        ...command.optsWithGlobals<CLIOptions>(),
+        ...(action === 'delegate' ? { subagents: true } : {}),
+      });
+      const { manageWorktrees } = await import('./worktrees.js');
+      await manageWorktrees(loaded, action, id, command.opts());
+    });
+  program
     .command('delegate')
     .description('用户显式执行一批只读子任务；模拟服务可离线验证')
     .requiredOption(
@@ -205,6 +225,10 @@ export function createProgram(): Command {
     .description('执行有界 Agent 任务；逐次审批文件修改与命令，Plan只读')
     .argument('[task]', '编程任务；--resume 时可省略')
     .option('--json', '输出JSONL事件（审批提示仍在stderr）')
+    .option(
+      '--worktrees',
+      '用户显式开启归属工作树工具和WorktreeTask隔离委派；创建/清理仍需shell审批',
+    )
     .option('--max-turns <count>', '模型轮数上限（1–1000）')
     .option('--max-total-tokens <count>', '累计输入+输出token上限（无usage时估算）')
     .option('--timeout-ms <milliseconds>', '整个任务时限（1–3600000）')
@@ -214,7 +238,10 @@ export function createProgram(): Command {
     .option('--skill <name...>', '明确指定本次任务技能；最多4个')
     .option('--audit-file <file>', '将脱敏权限决策写入新JSONL文件（父目录须存在）')
     .action(async (task: string | undefined, _options: unknown, command: Command) => {
-      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const loaded = await loadOptions({
+        ...command.optsWithGlobals<CLIOptions>(),
+        ...(command.opts<{ worktrees?: boolean }>().worktrees ? { subagents: true } : {}),
+      });
       const { runAgent } = await import('./run.js');
       await runAgent(loaded, task ?? '', command.opts());
     });

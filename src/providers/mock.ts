@@ -28,6 +28,58 @@ export class MockProvider implements LLMProvider {
   }
 
   async *stream(request: LLMRequest, signal: AbortSignal): AsyncIterable<LLMEvent> {
+    const writable = request.messages.some(
+      (message) =>
+        message.role === 'user' && message.content.startsWith('MEWCODE_WORKTREE_SUBAGENT_V1\n'),
+    );
+    if (writable && this.response === undefined) {
+      this.checkCancelled(signal);
+      const tool = request.messages.findLast((message) => message.role === 'tool');
+      const result = tool
+        ? (JSON.parse(tool.content) as { name: string; ok: boolean; data?: { path?: string } })
+        : undefined;
+      if (!result && request.tools?.some((item) => item.name === 'WriteFile')) {
+        yield {
+          type: 'tool_call_delta',
+          index: 0,
+          callId: 'mock-worktree-write',
+          name: 'WriteFile',
+          arguments: JSON.stringify({
+            path: 'mewcode-demo.txt',
+            content: '离线工作树隔离演示；此文件只用于验证写入协议。\n',
+          }),
+        };
+        yield { type: 'finish', reason: 'tool_calls' };
+      } else if (
+        result?.name === 'WriteFile' &&
+        result.ok &&
+        request.tools?.some((item) => item.name === 'ReadFile')
+      ) {
+        yield {
+          type: 'tool_call_delta',
+          index: 0,
+          callId: 'mock-worktree-read',
+          name: 'ReadFile',
+          arguments: '{"path":"mewcode-demo.txt"}',
+        };
+        yield { type: 'finish', reason: 'tool_calls' };
+      } else {
+        yield {
+          type: 'text_delta',
+          text: JSON.stringify({
+            summary: result?.ok
+              ? '离线模拟在隔离工作树写入演示文件；不解释任意任务。'
+              : '离线模拟未完成写入，请检查权限或工具白名单。',
+            evidence:
+              result?.name === 'ReadFile' && result.ok
+                ? [{ path: 'mewcode-demo.txt', line: 1, note: '实际读取的演示文件' }]
+                : [],
+          }),
+        };
+        yield { type: 'finish', reason: 'stop' };
+      }
+      return;
+    }
     const isChild = request.messages.some(
       (message) => message.role === 'user' && message.content.startsWith('MEWCODE_SUBAGENT_V1\n'),
     );

@@ -7,6 +7,7 @@ import type { PermissionDecision } from '../security/policy.js';
 import { permissionRuleSchema } from '../security/rules.js';
 import type { PermissionAudit } from '../security/audit.js';
 import { ProjectPaths } from '../security/paths.js';
+import type { WorktreeBinding } from './worktree-schema.js';
 import { checkCancelled, ToolError } from './errors.js';
 import type { HookHandler, HookEvent } from './hook-types.js';
 import type { HookEventName } from './hook-schema.js';
@@ -21,6 +22,7 @@ import type {
 } from './types.js';
 
 export interface ExecutorOptions {
+  workspaceBinding?: WorktreeBinding;
   agentId?: string;
   allowTools?: readonly string[];
   hooks?: HookHandler;
@@ -105,6 +107,26 @@ export class ToolExecutor {
   }
 
   async fork(options: Omit<ExecutorOptions, 'root'> = {}): Promise<ToolExecutor> {
+    return this.forkAt(this.paths.root, options);
+  }
+  async forkForWorktree(
+    binding: WorktreeBinding,
+    options: Omit<ExecutorOptions, 'root' | 'workspaceBinding' | 'agentId'> = {},
+    signal = new AbortController().signal,
+  ): Promise<ToolExecutor> {
+    if (binding.repository !== this.paths.root)
+      throw new ToolError('WORKTREE_OWNER', '工作树不属于当前父执行器。');
+    await binding.verify(signal);
+    return this.forkAt(binding.root, {
+      ...options,
+      agentId: binding.agentId,
+      workspaceBinding: binding,
+    });
+  }
+  private async forkAt(
+    root: string,
+    options: Omit<ExecutorOptions, 'root'>,
+  ): Promise<ToolExecutor> {
     const mode = options.mode ?? this.mode;
     if (modeRank(mode) > modeRank(this.mode))
       throw new ToolError('TOOL_PERMISSION', '子执行器不能提升父权限。');
@@ -124,7 +146,8 @@ export class ToolExecutor {
         await this.options.audit?.(record);
         if (options.audit && options.audit !== this.options.audit) await options.audit(record);
       },
-      root: this.paths.root,
+      root,
+      ...(this.options.workspaceBinding ? { workspaceBinding: this.options.workspaceBinding } : {}),
       mode,
       timeoutMs: Math.min(
         options.timeoutMs ?? this.options.timeoutMs ?? 60_000,
@@ -274,6 +297,7 @@ export class ToolExecutor {
     signal = new AbortController().signal,
   ) {
     if (!this.options.hooks) return { decision: 'continue' as const };
+    if (event !== 'SessionEnd') await this.options.workspaceBinding?.verify(signal);
     const decision = await this.options.hooks(
       {
         version: 1,
@@ -319,6 +343,7 @@ export class ToolExecutor {
     let acquired = false;
     try {
       call = { callId: call.callId, name: call.name, input: structuredClone(call.input) };
+      await this.options.workspaceBinding?.verify(combined);
       await abortable(previous, combined);
       acquired = true;
       checkCancelled(combined);
@@ -449,6 +474,7 @@ export class ToolExecutor {
         shell: this.shell,
         rgExecutable: this.options.rgExecutable ?? 'rg',
       };
+      await this.options.workspaceBinding?.verify(combined);
       const prepared = await tool.prepare(input, context);
       checkCancelled(combined);
       const actualScope = tool.name === 'Glob' ? local : this.paths.display(prepared.target);
@@ -531,6 +557,7 @@ export class ToolExecutor {
         throw new ToolError('TOOL_PERMISSION', '执行前父权限已变化，拒绝操作。');
       }
       if (authorization === 'session') this.grants.add(fingerprint);
+      await this.options.workspaceBinding?.verify(combined);
       const payload = await prepared.run();
       if (tool.effect !== 'write') checkCancelled(combined);
       return {

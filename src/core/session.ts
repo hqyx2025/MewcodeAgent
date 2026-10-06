@@ -42,7 +42,11 @@ const messageSchema = z
     ...(value.continuation === undefined ? {} : { continuation: value.continuation }),
   }));
 export const sessionStateSchema = z.strictObject({
-  pendingSubagentTokens: z.number().int().min(0).max(200_000).optional(),
+  worktreeTaskIds: z
+    .array(z.string().regex(/^[a-z][a-z0-9-]{0,23}$/))
+    .max(32)
+    .optional(),
+  pendingSubagentTokens: z.number().int().min(0).max(400_000).optional(),
   subagentIds: z
     .array(z.string().regex(/^[a-z][a-z0-9-]{0,23}$/))
     .max(32)
