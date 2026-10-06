@@ -89,7 +89,9 @@ describe('MCP stdio client', () => {
         args: [fixture],
         cwd: '.',
         env: {},
-        connectTimeoutMs: 5000,
+        // Windows compiles the Job Object relay on startup; allow the same
+        // cold-start budget as the other stdio fixtures on shared CI runners.
+        connectTimeoutMs: 15_000,
         callTimeoutMs: 5000,
       },
     });
@@ -104,7 +106,7 @@ describe('MCP stdio client', () => {
     });
     try {
       const connected = await manager.connect('fixture', executor, AbortSignal.timeout(20000));
-      assert.equal(connected.ok, true);
+      assert.equal(connected.ok, true, connected.error?.code);
       assert.equal(manager.catalog('fixture').length, 2);
       const echo = await executor.execute(
         { callId: 'echo', name: mcpToolName('fixture', 'echo'), input: { text: 'hello' } },
