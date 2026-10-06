@@ -1,6 +1,6 @@
 # M09：记忆系统
 
-状态：本地完整检查与独立安装包通过，Windows/Linux CI待核对（2026-10-06）。
+状态：已完成并推送，本地完整检查、Windows/Linux CI与独立安装包通过（2026-10-06），实际记录见[验收清单](checklist.md)。
 
 用户记忆为 `<userDirectory>/memory.md`，仅保存显式确认的通用偏好；项目记忆为 `<cwd>/.mewcode/memory.md`，保存偏好、约定与用户确认的事实，绑定规范项目根。每个文件最多64KiB/100条，单条文本最多1024字符。文件是带版本、归属、来源的JSON代码块Markdown；不解析任意Markdown为可信记忆。
 
