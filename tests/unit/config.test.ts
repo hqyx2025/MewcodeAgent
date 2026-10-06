@@ -73,6 +73,21 @@ describe('layered configuration', () => {
     });
   });
 
+  it('merges only known memory fields and prevents a project from enabling disabled user memory', async () => {
+    await writeFile(
+      join(sandbox.userDirectory, 'config.yaml'),
+      'memory:\n  enabled: false\n  injectionBytes: 4096\n',
+    );
+    await writeFile(join(sandbox.projectDirectory, 'config.yaml'), 'memory:\n  enabled: true\n');
+    expect((await load()).settings.memory).toEqual({ enabled: false, injectionBytes: 4096 });
+    expect((await load({ env: { MEWCODE_MEMORY: 'true' } })).settings.memory.enabled).toBe(true);
+    await expect(load({ env: { MEWCODE_MEMORY: 'yes' } })).rejects.toMatchObject({
+      code: 'CONFIG_INVALID',
+    });
+    await writeFile(join(sandbox.projectDirectory, 'config.yaml'), 'memory:\n  unknown: true\n');
+    await expect(load()).rejects.toMatchObject({ code: 'CONFIG_INVALID' });
+  });
+
   it('resolves storage and log overrides relative to the working directory', async () => {
     const loaded = await load({
       env: {

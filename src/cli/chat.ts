@@ -1,6 +1,9 @@
 import { AppError } from '../shared/errors.js';
 import { terminalText } from '../shared/terminal-text.js';
 import type { LoadedConfiguration } from '../config/load.js';
+import { memoryRuntime, printMemoryWarnings } from './memory-runtime.js';
+import { createBuiltinRegistry } from '../tools/builtins.js';
+import { ToolExecutor } from '../tools/executor.js';
 
 async function readPrompt(): Promise<string> {
   let prompt = '';
@@ -18,10 +21,23 @@ export async function runChat(loaded: LoadedConfiguration, prompt?: string): Pro
   const { createProvider } = await import('../providers/create.js');
   const { Conversation } = await import('../core/conversation.js');
   const provider = await createProvider(loaded.settings);
+  const registry = createBuiltinRegistry();
+  const memory = await memoryRuntime(loaded, registry);
+  const executor = await ToolExecutor.create(registry, {
+    root: loaded.cwd,
+    mode: loaded.settings.mode,
+    rules: [...loaded.permissionRules, ...memory.rules],
+  });
+  const shownMemoryWarnings = new Set<string>();
   const conversation = new Conversation(provider, {
     model: loaded.settings.provider.model,
     maxOutputTokens: loaded.settings.limits.maxOutputTokens,
     timeoutMs: loaded.settings.limits.timeoutMs,
+    memory: async (query, signal) => {
+      const selection = await memory.store.select(executor, query, loaded.settings.memory, signal);
+      printMemoryWarnings(selection.warnings, shownMemoryWarnings);
+      return selection;
+    },
   });
   if (prompt === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     const { startChat } = await import('../ui/start.js');

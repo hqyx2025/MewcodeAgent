@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M08 已完成，Windows/Linux CI及独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP，以及可选持久会话、上下文压缩和结果溢写。M08 的恢复边界见 [规格](docs/modules/M08/spec.md) 与[验收记录](docs/modules/M08/checklist.md)，下一模块为M09记忆系统。
+当前阶段：**M09 记忆系统本地验收与独立安装包通过，远端CI待核对**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩和确认后的用户/项目记忆。M09 的边界见 [规格](docs/modules/M09/spec.md) 与[验收记录](docs/modules/M09/checklist.md)。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M08/spec.md)、[任务](docs/modules/M08/tasks.md)与[验收记录](docs/modules/M08/checklist.md)可直接查看；M01–M07 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M09/spec.md)、[任务](docs/modules/M09/tasks.md)与[验收记录](docs/modules/M09/checklist.md)可直接查看；M01–M08 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -111,6 +111,33 @@ npm run dev -- sessions delete <session-id>
 会话保存在 `<storageDirectory>/sessions/<UUID>`，绑定项目、provider和model。恢复重建项目指令、使用旧/当前模式中更严格者、重新审批新操作；MCP连接仍需显式指定。不再次执行旧callId或与已记录修改动作相同的参数，遇到不确定外部状态先核对，不保证外部动作与本地日志具备原子事务。
 
 崩溃遗留锁不会自动解除：核对原进程已退出后可用 `sessions unlock <session-id>`。目录拒绝链接和路径穿越，删除只清理归属验证通过且未锁定的单会话及溢写。单检查点/结果2MiB、单会话总64MiB、最多10000提交记录；磁盘或校验失败会停止后续动作。`sessions show`默认仅元数据，`--content`显式查看脱敏正文；会话脱敏覆盖已知凭据与常见密钥形式，不代表隐藏全部业务信息。
+
+## 用户与项目记忆
+
+```powershell
+# 仅查看当前项目；不会自动保存会话或调用模型
+npm run dev -- memory list
+# --approve确认这一次操作；省略时TTY会展示审批，非TTY拒绝
+npm run dev -- memory add --scope user --kind preference --text "回答使用简体中文" --approve
+npm run dev -- memory add --scope project --kind convention --text "验证使用npm test" --approve
+npm run dev -- memory show <entry-id>
+npm run dev -- memory edit <entry-id> --text "验证使用npm run check" --approve
+npm run dev -- memory delete <entry-id> --approve
+
+# 从已保存会话提取候选，查看后逐条确认；候选提取不会写记忆
+npm run dev -- memory candidates <session-id>
+npm run dev -- memory accept <session-id> --candidate <candidate-digest> --approve
+```
+
+用户文件 `<userDirectory>/memory.md` 只保存显式确认的通用偏好；项目文件 `<cwd>/.mewcode/memory.md` 绑定当前规范项目根，允许preference/convention/fact。文件为有版本、归属和来源的JSON代码块Markdown，最多64KiB/100条；单条为最多1024字符的单行文本。使用 `memory edit` 保留原kind并记录新的人工来源；可用 `--kind` 显式改变项目条目的分类。`--revision <digest>` 限制保存版本，`--revision new` 仅允许新文件；审批期间发生变化会拒绝覆盖。
+
+候选只识别原始用户消息中的单行 `用户偏好：…`、`项目约定：…`、`已验证事实：…`；不从模型、工具输出或压缩摘要推断事实。`fact`是用户复核后的主张，不是机器证明。候选来源记录会话、检查点、消息和行号；接受时检查候选digest，可用 `--checkpoint <sequence>` 指定原检查点。项目候选不会自动转成全局记忆，用户作用域只接收preference，跨项目会话拒绝。
+
+run、prompt和chat每轮按需读取：偏好和约定优先，事实按英文词项/中文二字词项交集筛选，整条选择；默认JSON注入预算8192bytes，配置 `memory.enabled` / `memory.injectionBytes` 可调整，环境变量 `MEWCODE_MEMORY=false` 关闭自动注入。项目不能重新开启用户已关闭的记忆，显式环境覆盖可以。`prompt --json` 只显示条目ID、来源作用域、数量、字节和警告，不输出正文。压缩保留当前记忆区，恢复重新读取；删除后下一次请求不再加载，但不会抹除历史中已经复述的内容。
+
+管理工具对模型隐藏；修改、删除和解锁即使accept-edits也需审批，Plan禁止变更，deny不能由 `--approve` 覆盖。自动读取尊重 `MemoryRead` 的ask/deny及路径规则；例如用户配置中 `tool: MemoryRead, decision: deny` 可禁止全部自动读取。普通文件工具保留内部记忆路径，自定义项目内用户目录受专用规则保护，递归查询可能需缩小范围。Shell和MCP本身有经授权的主机能力，记忆文件保护不等同于OS沙箱。
+
+写入使用独占锁和原子替换；崩溃遗留锁不会自动偷取，可在核对原进程终止后 `memory unlock --scope project --approve`，只允许同主机且进程已终止的有效锁。未知版本、损坏、超限、symlink/junction或硬链接会拒绝；已知凭据、常见密钥与敏感赋值拒绝保存，外部引入的敏感条目过滤。过滤是本地规则，不保证识别所有个人或业务敏感信息；不要将此类信息作为记忆输入。固定基准可运行 `npm run bench:memory`，不调用收费模型。
 
 ## 权限规则与审计
 

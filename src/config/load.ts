@@ -119,6 +119,11 @@ function environmentPatch(env: NodeJS.ProcessEnv): ConfigPatch {
   if (Object.keys(limits).length > 0) patch.limits = limits;
   if (Object.keys(storage).length > 0) patch.storage = storage;
   if (env.MEWCODE_MODE !== undefined) patch.mode = env.MEWCODE_MODE;
+  if (env.MEWCODE_MEMORY !== undefined) {
+    if (!['true', 'false'].includes(env.MEWCODE_MEMORY))
+      throw new AppError('CONFIG_INVALID', 'MEWCODE_MEMORY 必须为true或false。');
+    patch.memory = { enabled: env.MEWCODE_MEMORY === 'true' };
+  }
   return validate(configPatchSchema, patch, '环境变量：');
 }
 
@@ -167,7 +172,18 @@ export async function loadConfiguration(options: LoadOptions = {}): Promise<Load
         kind === 'project' && patch.mode !== undefined
           ? stricterMode(settings.mode, patch.mode)
           : patch.mode;
-      settings = mergeSettings(settings, { ...patch, mode: projectMode });
+      settings = mergeSettings(settings, {
+        ...patch,
+        mode: projectMode,
+        ...(kind === 'project' && patch.memory
+          ? {
+              memory: {
+                ...patch.memory,
+                enabled: settings.memory.enabled && (patch.memory.enabled ?? true),
+              },
+            }
+          : {}),
+      });
       sources.push({ kind, path });
     }
   }

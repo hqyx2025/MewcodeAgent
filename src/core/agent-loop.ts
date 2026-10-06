@@ -11,6 +11,8 @@ import { compactHistory, defaultContext, measureContext, actionDigest } from './
 import type { ContextSettings, ContextMeasure } from './context.js';
 import { inlineResult, recoverState } from './session.js';
 import type { SessionStore, SessionState } from './session.js';
+import type { MemoryStore, MemorySelection } from './memory.js';
+import type { MemorySettings } from './memory-schema.js';
 
 export interface AgentOptions {
   model: string;
@@ -25,6 +27,7 @@ export interface AgentOptions {
   context?: ContextSettings;
   session?: SessionStore;
   resume?: SessionState;
+  memory?: { store: MemoryStore; settings: MemorySettings };
 }
 
 export type AgentEvent =
@@ -54,6 +57,7 @@ export type AgentEvent =
 export class AgentLoop {
   private messages: LLMMessage[] = [];
   private busy = false;
+  private memory?: MemorySelection;
 
   constructor(
     private readonly provider: LLMProvider,
@@ -88,6 +92,13 @@ export class AgentLoop {
       (path) => this.executor.allowsInstruction(path),
     );
     await instructions.discover('.', 'directory', signal);
+    if (this.options.memory)
+      this.memory = await this.options.memory.store.select(
+        this.executor,
+        '',
+        this.options.memory.settings,
+        signal,
+      );
     return this.compose(instructions).manifest;
   }
 
@@ -123,6 +134,7 @@ export class AgentLoop {
       },
       instructions.sources,
       instructions.warningHistory,
+      this.memory,
     );
   }
 
@@ -253,6 +265,18 @@ export class AgentLoop {
       const promptTools = visible.map(({ name, effect }) => ({ name, effect }));
       await instructions.discover('.', 'directory', combined);
       instructions.takeWarnings();
+      const memoryQuery =
+        prompt.trim() ||
+        this.messages.findLast((message) => message.role === 'user' && !message.contextSummary)
+          ?.content ||
+        '';
+      if (this.options.memory)
+        this.memory = await this.options.memory.store.select(
+          this.executor,
+          memoryQuery,
+          this.options.memory.settings,
+          combined,
+        );
       const initial = this.compose(instructions, promptTools);
       this.messages[0]!.content = initial.text;
       yield { type: 'prompt_info', manifest: initial.manifest };
@@ -265,6 +289,19 @@ export class AgentLoop {
       }
       for (turns = (restored?.turns ?? 0) + 1; turns <= this.options.maxTurns; turns++) {
         this.checkCancelled(combined);
+        if (this.options.memory && turns > (restored?.turns ?? 0) + 1) {
+          this.memory = await this.options.memory.store.select(
+            this.executor,
+            memoryQuery,
+            this.options.memory.settings,
+            combined,
+          );
+          const updated = this.compose(instructions, promptTools);
+          if (updated.text !== this.messages[0]!.content) {
+            this.messages[0]!.content = updated.text;
+            yield { type: 'prompt_info', manifest: updated.manifest };
+          }
+        }
         let measure = measureContext(
           this.messages,
           definitions,

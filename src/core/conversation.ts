@@ -1,5 +1,7 @@
 import { AppError } from '../shared/errors.js';
 import type { LLMEvent, LLMMessage, LLMProvider } from '../providers/types.js';
+import type { MemorySelection } from './memory.js';
+import { memoryPrompt } from './prompt.js';
 
 export interface ConversationOptions {
   model: string;
@@ -8,6 +10,7 @@ export interface ConversationOptions {
   maxHistoryMessages?: number;
   maxContextCharacters?: number;
   maxResponseCharacters?: number;
+  memory?: (query: string, signal: AbortSignal) => Promise<MemorySelection>;
 }
 
 const SYSTEM_MESSAGE: LLMMessage = {
@@ -60,6 +63,20 @@ export class Conversation {
     let response = '';
     let finish: 'stop' | 'length' | undefined;
     try {
+      if (this.options.memory) {
+        const memory = await this.options.memory(prompt, combined);
+        if (memory.entries.length)
+          requestMessages[0] = {
+            role: 'system',
+            content: `${SYSTEM_MESSAGE.content}\n\n## memory\n${memoryPrompt(memory)}`,
+          };
+        if (
+          requestMessages.reduce((size, message) => size + message.content.length, 0) >
+          (this.options.maxContextCharacters ?? 100_000)
+        )
+          throw new AppError('CONTEXT_LIMIT', '记忆与会话超过上下文上限，本轮未发送模型请求。');
+      }
+      if (combined.aborted) throw new AppError('CANCELLED', '请求已取消，未调用模型。');
       for await (const event of this.provider.stream(
         {
           model: this.options.model,

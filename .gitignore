@@ -9,4 +9,7 @@ coverage/
 .mewcode/config.yaml
 .mewcode/sessions/
 .mewcode/cache/
+.mewcode/memory.md
+.mewcode/memory.lock
+.mewcode/memory-*.tmp
 *.log

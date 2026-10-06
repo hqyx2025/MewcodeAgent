@@ -57,6 +57,10 @@ export class ToolExecutor {
     return this.decision('ReadFile', 'read', this.paths.display(path), false).decision === 'allow';
   }
 
+  allowsRead(name: string, path: string): boolean {
+    return this.decision(name, 'read', this.paths.display(path), false).decision === 'allow';
+  }
+
   get policyMetadata() {
     return {
       rules: structuredClone(this.options.rules ?? []),

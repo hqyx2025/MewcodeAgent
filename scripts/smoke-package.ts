@@ -207,6 +207,47 @@ registerHooks({
   assert.equal(resumedEvents.at(-1)?.reason, 'completed');
   await run(['sessions', 'delete', savedSession]);
 
+  const memorySaved = JSON.parse(
+    (
+      await run([
+        'memory',
+        'add',
+        '--scope',
+        'user',
+        '--text',
+        'installed-memory-private-marker',
+        '--approve',
+      ])
+    ).stdout,
+  ) as { ok: boolean; data: { entry: { id: string } } };
+  assert(memorySaved.ok);
+  const memoryPrompt = (await run(['prompt', '--json'])).stdout;
+  assert(!memoryPrompt.includes('installed-memory-private-marker'));
+  assert.equal((JSON.parse(memoryPrompt) as { memory: { selected: number } }).memory.selected, 1);
+  assert(
+    (await run(['memory', 'show', memorySaved.data.entry.id, '--scope', 'user'])).stdout.includes(
+      'installed-memory-private-marker',
+    ),
+  );
+  const deniedMemory = (await run([
+    '--mode',
+    'plan',
+    'memory',
+    'delete',
+    memorySaved.data.entry.id,
+    '--scope',
+    'user',
+    '--approve',
+  ]).catch((error: unknown) => error)) as { code: number; stdout: string };
+  assert.equal(deniedMemory.code, 1);
+  assert(deniedMemory.stdout.includes('TOOL_PERMISSION'));
+  await run(['memory', 'delete', memorySaved.data.entry.id, '--scope', 'user', '--approve']);
+  assert.equal(
+    (JSON.parse((await run(['prompt', '--json'])).stdout) as { memory: { selected: number } })
+      .memory.selected,
+    0,
+  );
+
   const bin = join(
     installation,
     'node_modules',
@@ -244,6 +285,8 @@ registerHooks({
         permissions: 'passed (mode inspection, persisted redacted decision)',
         mcp: 'passed (inert list, mock stdio discovery and approved call)',
         context: 'passed (save, metadata, resume without tool replay, retained Plan, owned delete)',
+        memory:
+          'passed (confirmed user preference, explicit show, private prompt metadata, Plan denial, delete and reload)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

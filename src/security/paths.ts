@@ -14,6 +14,9 @@ export const SEARCH_IGNORES = [
   '**/.mewcode/sessions/**',
   '**/.mewcode/cache/**',
   '**/.mewcode/audit/**',
+  '**/.mewcode/memory.md',
+  '**/.mewcode/memory.lock',
+  '**/.mewcode/memory-*.tmp',
 ];
 
 export class ProjectPaths {
@@ -56,7 +59,10 @@ export class ProjectPaths {
       lower.some(
         (part, index) =>
           part === '.mewcode' &&
-          ['config.yaml', 'sessions', 'cache', 'audit'].includes(lower[index + 1] ?? ''),
+          (['config.yaml', 'sessions', 'cache', 'audit', 'memory.md', 'memory.lock'].includes(
+            lower[index + 1] ?? '',
+          ) ||
+            /^memory-.*\.tmp$/.test(lower[index + 1] ?? '')),
       ) ||
       parts.some((part) => /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))
     ) {

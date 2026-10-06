@@ -8,6 +8,7 @@ import { ToolExecutor } from '../tools/executor.js';
 import type { LoadedConfiguration } from '../config/load.js';
 import type { ToolContext } from '../tools/types.js';
 import { permissionRuntime } from './permissions.js';
+import { memoryProtection } from './memory-runtime.js';
 
 export interface ToolCLIOptions {
   input?: string;
@@ -84,7 +85,7 @@ export async function runTool(
       root: loaded.cwd,
       mode: loaded.settings.mode,
       timeoutMs: loaded.settings.limits.timeoutMs,
-      rules: runtime.rules,
+      rules: [...runtime.rules, ...(await memoryProtection(loaded))],
       audit: runtime.audit,
       ...(shell ? { shell } : {}),
       ...(options.approve

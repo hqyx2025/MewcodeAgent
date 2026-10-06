@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { permissionRuleSchema } from '../security/rules.js';
 import { mcpSettingsSchema } from '../mcp/config.js';
 import { contextSchema, defaultContext } from '../core/context.js';
+import { memorySettingsSchema, defaultMemory } from '../core/memory-schema.js';
 
 export const providerKinds = ['mock', 'openai-compatible', 'anthropic'] as const;
 export const agentModes = ['plan', 'default', 'accept-edits'] as const;
@@ -52,6 +53,7 @@ const storageSchema = z.strictObject({
 const permissionsSchema = z.strictObject({ rules: z.array(permissionRuleSchema).max(400) });
 
 export const configPatchSchema = z.strictObject({
+  memory: memorySettingsSchema.partial().optional(),
   context: contextSchema.partial().optional(),
   mcp: mcpSettingsSchema.optional(),
   provider: providerSchema.partial().optional(),
@@ -63,6 +65,7 @@ export const configPatchSchema = z.strictObject({
 
 export const configSchema = z
   .strictObject({
+    memory: memorySettingsSchema.default(defaultMemory),
     context: contextSchema.default(defaultContext),
     mcp: mcpSettingsSchema.default({ servers: {} }),
     provider: providerSchema,
@@ -91,6 +94,7 @@ export type Settings = z.infer<typeof configSchema>;
 export type ConfigPatch = z.infer<typeof configPatchSchema>;
 
 export const defaultSettings: Settings = {
+  memory: defaultMemory,
   context: defaultContext,
   mcp: { servers: {} },
   provider: { kind: 'mock', model: 'mock-v1' },
@@ -102,6 +106,7 @@ export const defaultSettings: Settings = {
 
 export function mergeSettings(current: Settings, patch: ConfigPatch): Settings {
   return {
+    memory: mergeDefined(current.memory, patch.memory),
     context: mergeDefined(current.context, patch.context),
     mcp: { servers: { ...current.mcp.servers, ...patch.mcp?.servers } },
     provider: mergeDefined(current.provider, patch.provider),

@@ -19,6 +19,10 @@ export type ErrorCode =
   | 'SESSION_INVALID'
   | 'SESSION_IO'
   | 'SESSION_LOCKED'
+  | 'MEMORY_INVALID'
+  | 'MEMORY_CONFLICT'
+  | 'MEMORY_LOCKED'
+  | 'MEMORY_IO'
   | 'BUSY';
 
 export class AppError extends Error {

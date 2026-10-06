@@ -182,6 +182,24 @@ export function createProgram(): Command {
       listTools();
     });
   program
+    .command('memory')
+    .description('查看、候选提取和确认管理记忆，不调用模型')
+    .argument('[action]', 'list/show/add/edit/delete/candidates/accept/unlock', 'list')
+    .argument('[id]', '条目UUID；candidates/accept使用会话UUID')
+    .option('--scope <scope>', 'project（默认）或user；user仅保存通用偏好')
+    .option('--kind <kind>', 'preference（默认）/convention/fact；fact仍需用户复核')
+    .option('--text <text>', '需要保存的单行文本')
+    .option('--revision <digest>', '限制到指定查看版本；new表示文件尚不存在')
+    .option('--candidate <id>', '接受指定候选digest')
+    .option('--checkpoint <sequence>', '候选来自指定历史检查点')
+    .option('--approve', '明确确认本次记忆变更；不能覆盖Plan或deny')
+    .option('--audit-file <file>', '写入脱敏审批审计的新JSONL文件')
+    .action(async (action: string, id: string | undefined, _options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { manageMemory } = await import('./memory.js');
+      await manageMemory(loaded, action, id, command.opts());
+    });
+  program
     .command('mcp')
     .description('查看或发现显式配置的 MCP 服务')
     .argument('[action]', 'list 或 discover', 'list')

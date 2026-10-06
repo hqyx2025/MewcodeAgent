@@ -15,6 +15,7 @@ import { SessionStore } from '../core/session.js';
 import type { SessionState } from '../core/session.js';
 import { relative, join, sep } from 'node:path';
 import { referencedValues } from '../mcp/config.js';
+import { memoryRuntime, printMemoryWarnings } from './memory-runtime.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -36,6 +37,13 @@ function sensitiveValues(loaded: LoadedConfiguration): string[] {
 }
 
 function printPrompt(manifest: PromptManifest, shownWarnings: Set<string>): void {
+  if (manifest.memory) {
+    if (manifest.memory.selected)
+      process.stderr.write(
+        `记忆：加载${manifest.memory.selected}条，${manifest.memory.bytes} bytes；省略${manifest.memory.omitted}条。\n`,
+      );
+    printMemoryWarnings(manifest.memory.warnings, shownWarnings);
+  }
   if (manifest.sources.length)
     process.stderr.write(
       terminalText(
@@ -53,24 +61,34 @@ function printPrompt(manifest: PromptManifest, shownWarnings: Set<string>): void
 }
 
 export async function inspectPrompt(loaded: LoadedConfiguration, json: boolean): Promise<void> {
-  const executor = await ToolExecutor.create(createBuiltinRegistry(), {
+  const registry = createBuiltinRegistry();
+  const memory = await memoryRuntime(loaded, registry);
+  const executor = await ToolExecutor.create(registry, {
     root: loaded.cwd,
     mode: loaded.settings.mode,
-    rules: loaded.permissionRules,
+    rules: [...loaded.permissionRules, ...memory.rules],
   });
   const manifest = await new AgentLoop(new MockProvider({ delayMs: 0 }), executor, {
     model: loaded.settings.provider.model,
     mode: loaded.settings.mode,
     ...loaded.settings.limits,
     sensitiveValues: sensitiveValues(loaded),
+    memory: { store: memory.store, settings: loaded.settings.memory },
   }).inspectPrompt(AbortSignal.timeout(loaded.settings.limits.timeoutMs));
   if (json) process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
-  else
+  else {
     process.stdout.write(
       terminalText(
         `系统提示 ${manifest.version}：${manifest.characters} 字符，估算 ${manifest.estimatedTokens} token。\n提示段：${manifest.sections.map((section) => section.id).join(' → ')}\n模式：${manifest.environment.mode}；Shell：${manifest.environment.shell.kind}\n项目指令：${manifest.sources.map((source) => `${source.path} [scope=${source.scope}]`).join('，') || '无'}\n${manifest.warnings.map((warning) => `警告 ${warning.code}：${warning.path}；${warning.message}`).join('\n')}\n`,
       ),
     );
+    if (manifest.memory) {
+      process.stdout.write(
+        `记忆：${manifest.memory.selected}条，${manifest.memory.bytes} bytes；省略${manifest.memory.omitted}条。\n`,
+      );
+      printMemoryWarnings(manifest.memory.warnings, new Set());
+    }
+  }
 }
 
 function positive(value: string | undefined, fallback: number, max: number): number {
@@ -130,6 +148,7 @@ export async function runAgent(
     }),
   );
   const registry = createBuiltinRegistry();
+  const memory = await memoryRuntime(loaded, registry);
   const mcp = new MCPManager(registry, selected, process.env, sensitiveValues(loaded));
   const provider = await createProvider(loaded.settings);
   let session: SessionStore | undefined;
@@ -206,7 +225,7 @@ export async function runAgent(
       mode,
       timeoutMs,
       approve: approveTool,
-      rules: runtime.rules,
+      rules: [...runtime.rules, ...memory.rules],
       audit: runtime.audit,
     });
     for (const id of Object.keys(selected)) {
@@ -223,6 +242,7 @@ export async function runAgent(
       maxTotalTokens,
       sensitiveValues: sensitiveValues(loaded),
       context: loaded.settings.context,
+      memory: { store: memory.store, settings: loaded.settings.memory },
       ...(session ? { session } : {}),
       ...(restored ? { resume: restored } : {}),
     });

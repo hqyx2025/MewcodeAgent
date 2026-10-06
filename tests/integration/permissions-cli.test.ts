@@ -142,12 +142,20 @@ describe('M06 permissions CLI', () => {
       .split('\n')
       .map((line) => JSON.parse(line) as { type: string; record?: unknown });
     const decisions = events.filter((event) => event.type === 'permission');
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0]?.record).toMatchObject({ decision: 'allow', name: 'Glob', mode: 'plan' });
-    const stored = JSON.parse(
-      (await readFile(join(sandbox.projectDirectory, 'audit', 'run-audit.jsonl'), 'utf8')).trim(),
+    expect(decisions).toHaveLength(5);
+    expect(decisions.map((event) => event.record)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ decision: 'allow', name: 'Glob', mode: 'plan' }),
+        expect.objectContaining({ decision: 'allow', name: 'MemoryRead', mode: 'plan' }),
+      ]),
     );
-    expect(stored).toEqual(decisions[0]?.record);
+    const stored = (
+      await readFile(join(sandbox.projectDirectory, 'audit', 'run-audit.jsonl'), 'utf8')
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(stored).toEqual(decisions.map((event) => event.record));
     expect(events.at(-1)).toMatchObject({ type: 'finish', reason: 'completed' });
   });
 
