@@ -283,7 +283,11 @@ describe('persistent agent teams', () => {
   });
   it('serializes each member, honors dependencies, continues owned changes and persists the shared ledger', async () => {
     const team = await store.create(
-      definition([task('one'), task('two', 'bob', ['one']), task('three', 'alice', ['two'])]),
+      definition([
+        { ...task('one'), context: '\u0000'.repeat(4096) },
+        task('two', 'bob', ['one']),
+        task('three', 'alice', ['two']),
+      ]),
       manager,
     );
     const requests: LLMRequest[] = [];
@@ -296,6 +300,9 @@ describe('persistent agent teams', () => {
     expect(result.state.usedTokens).toBe(600);
     expect(result.metrics.modelRequests).toBe(12);
     expect(result.metrics.peakActive).toBe(1);
+    const firstContext = JSON.parse(requests[0]!.messages[1]!.content.split('\n').at(-1)!).context;
+    expect(firstContext.length).toBeLessThanOrEqual(4096);
+    expect(JSON.parse(firstContext)).toMatchObject({ contextTruncated: true });
     expect(await readFile(join(team.members[0]!.path, 'same.txt'), 'utf8')).toBe('three\n');
     expect(await readFile(join(team.members[1]!.path, 'same.txt'), 'utf8')).toBe('two\n');
     expect(await readFile(join(box.cwd, 'same.txt'), 'utf8')).toBe('base\n');

@@ -282,6 +282,24 @@ export async function runTeam(
           contextData.messages.pop();
           contextData.omittedMessages++;
         }
+        // JSON escaping can expand control characters beyond the raw-byte limits.
+        while (JSON.stringify(contextData).length > 4096) {
+          if (contextData.context) {
+            contextData.context = byteLimit(
+              contextData.context,
+              Math.floor(Buffer.byteLength(contextData.context) / 2),
+            );
+            contextData.contextTruncated = true;
+          }
+          for (const dependency of contextData.dependencies)
+            if (dependency.summary) {
+              dependency.summary = byteLimit(
+                dependency.summary,
+                Math.floor(Buffer.byteLength(dependency.summary) / 2),
+              );
+              dependency.truncated = true;
+            }
+        }
         const context = JSON.stringify(contextData);
         const job = pool
           .delegate(
