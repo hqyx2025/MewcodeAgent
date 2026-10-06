@@ -4,6 +4,9 @@ import type { LoadedConfiguration } from '../config/load.js';
 import { memoryRuntime, printMemoryWarnings } from './memory-runtime.js';
 import { createBuiltinRegistry } from '../tools/builtins.js';
 import { ToolExecutor } from '../tools/executor.js';
+import { commandRuntime } from './commands.js';
+import type { CommandResult } from '../core/commands.js';
+import type { LLMProvider } from '../providers/types.js';
 
 async function readPrompt(): Promise<string> {
   let prompt = '';
@@ -20,7 +23,15 @@ async function readPrompt(): Promise<string> {
 export async function runChat(loaded: LoadedConfiguration, prompt?: string): Promise<void> {
   const { createProvider } = await import('../providers/create.js');
   const { Conversation } = await import('../core/conversation.js');
-  const provider = await createProvider(loaded.settings);
+  let implementation: LLMProvider | undefined;
+  const provider: LLMProvider = {
+    id: loaded.settings.provider.kind,
+    capabilities: { streaming: true, toolCalling: false },
+    stream: async function* (request, signal) {
+      implementation ??= await createProvider(loaded.settings);
+      yield* implementation.stream(request, signal);
+    },
+  };
   const registry = createBuiltinRegistry();
   const memory = await memoryRuntime(loaded, registry);
   const executor = await ToolExecutor.create(registry, {
@@ -39,18 +50,51 @@ export async function runChat(loaded: LoadedConfiguration, prompt?: string): Pro
       return selection;
     },
   });
+  const commands = commandRuntime(loaded, executor, {
+    clear: () => conversation.clear(),
+    compact: () => conversation.compact(),
+    setModel: (model) => conversation.setModel(model),
+  });
+  const handoff = async (result: Extract<CommandResult, { kind: 'agent' }>) => {
+    const { runAgentTask } = await import('./run.js');
+    await runAgentTask(
+      { ...loaded, settings: { ...loaded.settings, mode: result.mode } },
+      result.prompt,
+      result.resume ? { resume: result.resume } : {},
+    );
+  };
   if (prompt === undefined && process.stdin.isTTY && process.stdout.isTTY) {
     const { startChat } = await import('../ui/start.js');
-    await startChat({ conversation, model: loaded.settings.provider.model, provider: provider.id });
+    await commands.list();
+    let pending: Extract<CommandResult, { kind: 'agent' }> | undefined;
+    await startChat({
+      conversation,
+      model: loaded.settings.provider.model,
+      provider: provider.id,
+      commands,
+      onAgent: (result) => {
+        pending = result;
+      },
+    });
+    if (pending) await handoff(pending);
     return;
   }
   const text = prompt ?? (await readPrompt());
+  const result = await commands.execute(text);
+  if (result.kind === 'local') {
+    process.stdout.write(`${terminalText(result.text)}\n`);
+    return;
+  }
+  if (result.kind === 'agent') {
+    await handoff(result);
+    return;
+  }
   const controller = new AbortController();
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
   let output = false;
   try {
-    for await (const event of conversation.send(text, controller.signal)) {
+    for await (const event of conversation.send(result.prompt, controller.signal)) {
       if (event.type === 'text_delta') {
         output = true;
         process.stdout.write(terminalText(event.text));

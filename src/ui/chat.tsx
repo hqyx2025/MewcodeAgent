@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, Static, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput } from 'ink';
 import type { Conversation } from '../core/conversation.js';
 import { AppError } from '../shared/errors.js';
 import { terminalText } from '../shared/terminal-text.js';
+import type { CommandRegistry, CommandResult } from '../core/commands.js';
 
 interface Turn {
   id: number;
@@ -16,6 +17,8 @@ export interface ChatProps {
   conversation: Conversation;
   model: string;
   provider: string;
+  commands?: CommandRegistry;
+  onAgent?: (result: Extract<CommandResult, { kind: 'agent' }>) => void;
 }
 
 function TurnView({ turn }: { turn: Turn }) {
@@ -34,12 +37,14 @@ function TurnView({ turn }: { turn: Turn }) {
   );
 }
 
-export function Chat({ conversation, model, provider }: ChatProps) {
+export function Chat({ conversation, model, provider, commands, onAgent }: ChatProps) {
   const { exit } = useApp();
   const [input, setInput] = useState('');
   const [completed, setCompleted] = useState<Turn[]>([]);
   const [active, setActive] = useState<Turn | undefined>();
   const [usage, setUsage] = useState('');
+  const [notice, setNotice] = useState('');
+  const [currentModel, setCurrentModel] = useState(model);
   const running = useRef(false);
   const controller = useRef<AbortController | undefined>(undefined);
   const mounted = useRef(true);
@@ -96,8 +101,47 @@ export function Chat({ conversation, model, provider }: ChatProps) {
     }
   };
 
+  const submit = async (text: string) => {
+    if (!commands) {
+      await send(text);
+      return;
+    }
+    running.current = true;
+    setInput('');
+    setNotice('正在处理命令…');
+    try {
+      const result = await commands.execute(text);
+      if (!mounted.current) return;
+      if (result.kind === 'local') {
+        if (result.clear) {
+          setCompleted([]);
+          setUsage('');
+        }
+        setCurrentModel(conversation.model);
+        setNotice(terminalText(result.text));
+      } else if (result.kind === 'agent') {
+        if (!onAgent) throw new AppError('COMMAND_INVALID', '当前界面没有 Agent 任务入口。');
+        onAgent(result);
+        exit();
+      } else {
+        if (completed.length >= 200)
+          throw new AppError('CONTEXT_LIMIT', '展示已达上限，请先使用 /clear。');
+        setNotice('');
+        await send(result.prompt);
+      }
+    } catch (error) {
+      if (mounted.current)
+        setNotice(
+          error instanceof AppError ? `[${error.code}] ${error.message}` : '命令处理失败。',
+        );
+    } finally {
+      running.current = false;
+    }
+  };
+
   useInput((text, key) => {
     if (key.ctrl && text === 'c') {
+      mounted.current = false;
       controller.current?.abort();
       exit();
       return;
@@ -108,7 +152,14 @@ export function Chat({ conversation, model, provider }: ChatProps) {
     }
     if (running.current) return;
     if (key.return) {
-      if (input.trim() && completed.length < 200) void send(input);
+      if (input.trim() && (completed.length < 200 || input.trim().startsWith('/')))
+        void submit(input);
+      return;
+    }
+    if (key.tab && commands) {
+      const matches = commands.complete(input);
+      if (matches.length === 1) setInput(`${matches[0]} `);
+      else if (matches.length) setNotice(matches.join('  '));
       return;
     }
     if (key.backspace || key.delete) {
@@ -134,9 +185,11 @@ export function Chat({ conversation, model, provider }: ChatProps) {
 
   return (
     <Box flexDirection="column">
-      <Static items={completed}>{(turn) => <TurnView key={turn.id} turn={turn} />}</Static>
+      {completed.slice(-20).map((turn) => (
+        <TurnView key={turn.id} turn={turn} />
+      ))}
       <Text bold color="green">
-        MewCode Agent · {terminalText(provider)} / {terminalText(model)}
+        MewCode Agent · {terminalText(provider)} / {terminalText(currentModel)}
       </Text>
       {active && <TurnView turn={active} />}
       <Text color="cyan">› {input || (active ? '生成中…' : '输入问题')}</Text>
@@ -148,6 +201,7 @@ export function Chat({ conversation, model, provider }: ChatProps) {
             : 'Enter 发送 · Ctrl+C 退出'}
       </Text>
       {usage && <Text dimColor>{usage}</Text>}
+      {notice && <Text color="yellow">{notice}</Text>}
     </Box>
   );
 }

@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M09 已完成，Windows/Linux CI与独立安装包通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩和确认后的用户/项目记忆。M09 的边界见 [规格](docs/modules/M09/spec.md) 与[验收记录](docs/modules/M09/checklist.md)，下一模块为M10 Slash Command。
+当前阶段：**M10 Slash Command 实现与本地完整检查通过**，支持流式对话、六个编程工具、Agent Loop、项目指令、权限、MCP、可选持久会话、上下文压缩、确认后的用户/项目记忆和内置/自定义命令。M10 的边界见 [规格](docs/modules/M10/spec.md) 与[验收记录](docs/modules/M10/checklist.md)，下一模块为M11 Skill 系统。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M09/spec.md)、[任务](docs/modules/M09/tasks.md)与[验收记录](docs/modules/M09/checklist.md)可直接查看；M01–M08 的验收记录保留前期基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M10/spec.md)、[任务](docs/modules/M10/tasks.md)与[验收记录](docs/modules/M10/checklist.md)可直接查看；M01–M09 的验收记录保留前期基线。
 
 ## 本地运行
 
@@ -43,6 +43,32 @@ npm run build
 node dist/index.js --help
 node dist/index.js demo "你好 MewCode"
 ```
+
+## Slash Command
+
+```powershell
+npm run dev -- commands
+npm run dev -- commands resume
+npm run chat -- --provider mock --model mock-v1 "/help"
+npm run agent -- "/plan 分析项目入口" --save-session
+```
+
+chat 支持 `/help`、`/clear`、`/model`、`/permissions`、`/compact`、`/resume <id> [task]`、`/plan [on|off|task]`，TTY 中 Tab 补全名称。清空同时重置当前展示和模型上下文，压缩使用本地摘录。`/model` 切换当前服务的模型；`/permissions` 切换模式不能超过启动时上限，本地命令不连接模型。
+
+`/resume <id>` 与 `/plan <task>` 会先退出 chat 界面，再交给 Agent CLI 执行和审批；纯对话历史不会变成工具会话。`run` 的 `/clear`、`/compact` 会拒绝，因为单任务入口没有 chat 历史。
+
+把模板保存为项目 `.mewcode/commands/review.md` 或用户目录 `commands/review.md`，可选 Markdown frontmatter：
+
+```markdown
+---
+description: 检查指定文件
+argument-hint: '<path> [options]'
+---
+
+请检查 $1，要求：$ARGUMENTS
+```
+
+调用 `/review "中文 文件.ts" 检查边界`；内置优先于项目、项目优先于用户。正文按需读取，`/help --refresh` 更新名称和说明索引。位置参数和原始参数串只替换文字；模板不会执行 shell 或切换权限，`run` 的后续工具动作仍需原权限策略。[完整限制与行为](docs/modules/M10/spec.md)。
 
 ## 模型执行任务
 

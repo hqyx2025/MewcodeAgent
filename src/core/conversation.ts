@@ -2,6 +2,7 @@ import { AppError } from '../shared/errors.js';
 import type { LLMEvent, LLMMessage, LLMProvider } from '../providers/types.js';
 import type { MemorySelection } from './memory.js';
 import { memoryPrompt } from './prompt.js';
+import { compactHistory, defaultContext } from './context.js';
 
 export interface ConversationOptions {
   model: string;
@@ -32,6 +33,35 @@ export class Conversation {
     return this.messages.map((message) => ({ ...message }));
   }
 
+  get model(): string {
+    return this.options.model;
+  }
+
+  private idle(): void {
+    if (this.busy) throw new AppError('BUSY', '当前回答尚未结束，不能更改会话。');
+  }
+
+  clear(): void {
+    this.idle();
+    this.messages = [];
+  }
+
+  setModel(model: string): void {
+    this.idle();
+    if (!/^[\p{L}\p{N}_.:/-]{1,128}$/u.test(model))
+      throw new AppError('COMMAND_INVALID', '模型名称无效。');
+    this.options.model = model;
+  }
+
+  compact(): string {
+    this.idle();
+    if (!this.messages.length) return '当前没有可压缩的历史。';
+    const result = compactHistory([SYSTEM_MESSAGE, ...this.messages], defaultContext);
+    if (!result) return '历史较短或压缩不能减小体积，保留原文。';
+    this.messages = result.messages.slice(1);
+    return `本地历史摘录：${result.beforeBytes} → ${result.afterBytes} bytes；细节可能省略。`;
+  }
+
   async *send(
     prompt: string,
     signal: AbortSignal = new AbortController().signal,
@@ -48,7 +78,7 @@ export class Conversation {
     ) {
       throw new AppError(
         'CONTEXT_LIMIT',
-        '会话已达到当前上下文上限，请退出并开始新会话；自动压缩将在后续模块接入。',
+        '会话已达到当前上下文上限，请使用 /compact 或 /clear 后重试。',
       );
     }
     this.busy = true;

@@ -16,6 +16,7 @@ import type { SessionState } from '../core/session.js';
 import { relative, join, sep } from 'node:path';
 import { referencedValues } from '../mcp/config.js';
 import { memoryRuntime, printMemoryWarnings } from './memory-runtime.js';
+import { commandRuntime } from './commands.js';
 
 export interface RunCLIOptions {
   json?: boolean;
@@ -133,6 +134,37 @@ export async function approveTool(
 }
 
 export async function runAgent(
+  loaded: LoadedConfiguration,
+  task: string,
+  options: RunCLIOptions,
+): Promise<void> {
+  // Expand only the original user input. Template output is never reparsed as a local command.
+  if (task.trim().startsWith('/')) {
+    const registry = createBuiltinRegistry();
+    const executor = await ToolExecutor.create(registry, {
+      root: loaded.cwd,
+      mode: loaded.settings.mode,
+      rules: loaded.permissionRules,
+    });
+    const result = await commandRuntime(loaded, executor).execute(task);
+    if (result.kind === 'local') {
+      process.stdout.write(
+        options.json ? `${JSON.stringify(result)}\n` : `${terminalText(result.text)}\n`,
+      );
+      return;
+    }
+    task = result.prompt;
+    if (result.kind === 'agent') {
+      if (options.resume && result.resume && options.resume !== result.resume)
+        throw new AppError('COMMAND_INVALID', '恢复命令与 --resume 指定的会话不一致。');
+      loaded = { ...loaded, settings: { ...loaded.settings, mode: result.mode } };
+      options = { ...options, ...(result.resume ? { resume: result.resume } : {}) };
+    }
+  }
+  await runAgentTask(loaded, task, options);
+}
+
+export async function runAgentTask(
   loaded: LoadedConfiguration,
   task: string,
   options: RunCLIOptions,

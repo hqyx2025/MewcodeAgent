@@ -5,10 +5,66 @@ import { Conversation } from '../../src/core/conversation.js';
 import { MockProvider } from '../../src/providers/mock.js';
 import type { LLMProvider } from '../../src/providers/types.js';
 import { AppError } from '../../src/shared/errors.js';
+import { CommandRegistry } from '../../src/core/commands.js';
 
 describe('Ink conversation UI', () => {
   afterEach(cleanup);
   const options = { model: 'mock-v1', maxOutputTokens: 4096, timeoutMs: 1000 };
+
+  it('completes commands, changes model, clears rendered history and hands off resume', async () => {
+    const conversation = new Conversation(
+      new MockProvider({ delayMs: 0, response: 'old answer marker' }),
+      options,
+    );
+    const commands = new CommandRegistry({
+      model: () => conversation.model,
+      setModel: (model) => conversation.setModel(model),
+      mode: () => 'default',
+      setMode: () => {},
+      permissions: () => 'default',
+      clear: () => conversation.clear(),
+      compact: () => conversation.compact(),
+    });
+    const onAgent = vi.fn();
+    const view = render(
+      <Chat
+        conversation={conversation}
+        model="mock-v1"
+        provider="mock"
+        commands={commands}
+        onAgent={onAgent}
+      />,
+    );
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('输入问题'));
+    const submit = async (text: string) => {
+      view.stdin.write(text);
+      await vi.waitFor(() => expect(view.lastFrame()).toContain(text));
+      view.stdin.write('\r');
+    };
+    view.stdin.write('/mo');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('/mo'));
+    view.stdin.write('\t');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('/model'));
+    view.stdin.write('test-model');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('test-model'));
+    view.stdin.write('\r');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('模型：test-model'));
+    await submit('old question marker');
+    await vi.waitFor(() => expect(view.lastFrame()).toContain('old answer marker'));
+    await submit('/clear');
+    await vi.waitFor(() => {
+      expect(view.lastFrame()).toContain('已清空');
+      expect(view.lastFrame()).not.toContain('old answer marker');
+      expect(view.lastFrame()).not.toContain('old question marker');
+    });
+    expect(conversation.history).toEqual([]);
+    await submit('/resume 00000000-0000-4000-8000-000000000001');
+    await vi.waitFor(() =>
+      expect(onAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'agent', resume: '00000000-0000-4000-8000-000000000001' }),
+      ),
+    );
+  });
 
   it('accepts Chinese/emoji input, deletes a full grapheme and submits a round', async () => {
     const conversation = new Conversation(

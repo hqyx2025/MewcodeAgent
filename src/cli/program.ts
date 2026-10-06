@@ -120,6 +120,19 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('commands')
+    .description('查看内置及用户/项目 Markdown 命令的帮助，不调用模型')
+    .argument('[name]', '命令名称')
+    .action(async (name: string | undefined, _options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { runChat } = await import('./chat.js');
+      if (name !== undefined && !/^[a-z][a-z0-9-]{0,47}$/.test(name)) {
+        const { AppError } = await import('../shared/errors.js');
+        throw new AppError('COMMAND_INVALID', '命令名称无效。');
+      }
+      await runChat(loaded, name ? `/help ${name}` : '/help');
+    });
+  program
     .command('permissions')
     .description('查看有效权限模式、规则来源和审批范围，不调用模型')
     .action(async (_options: unknown, command: Command) => {

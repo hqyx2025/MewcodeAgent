@@ -23,6 +23,8 @@ export type ErrorCode =
   | 'MEMORY_CONFLICT'
   | 'MEMORY_LOCKED'
   | 'MEMORY_IO'
+  | 'COMMAND_INVALID'
+  | 'COMMAND_IO'
   | 'BUSY';
 
 export class AppError extends Error {

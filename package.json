@@ -40,6 +40,7 @@
     "bench:mcp": "tsx scripts/benchmark-mcp.ts",
     "bench:context": "tsx scripts/benchmark-context.ts",
     "bench:memory": "tsx scripts/benchmark-memory.ts",
+    "bench:commands": "tsx scripts/benchmark-commands.ts",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run check:boundaries && npm test && npm run build"
   },

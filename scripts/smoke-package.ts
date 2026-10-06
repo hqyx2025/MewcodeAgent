@@ -89,6 +89,15 @@ registerHooks({
   const demoTotalMs = performance.now() - demoStarted;
   assert(demo.stdout.includes('独立安装验证 🐈'));
   assert((await run(['chat', '安装后的对话 🐈'])).stdout.includes('安装后的对话 🐈'));
+  assert((await run(['commands'])).stdout.includes('/resume'));
+  assert(
+    (
+      await run(['--provider', 'openai-compatible', '--model', 'fixture-model', 'chat', '/help'])
+    ).stdout.includes('/compact'),
+  );
+  await mkdir(join(installation, '.mewcode', 'commands'), { recursive: true });
+  await writeFile(join(installation, '.mewcode', 'commands', 'review.md'), 'Review $1; $ARGUMENTS');
+  assert((await run(['chat', '/review "中文 文件.ts"'])).stdout.includes('Review 中文 文件.ts'));
   const agentEvents = (await run(['--mode', 'plan', 'run', '查看目录', '--json'])).stdout
     .trim()
     .split('\n')
@@ -287,6 +296,8 @@ registerHooks({
         context: 'passed (save, metadata, resume without tool replay, retained Plan, owned delete)',
         memory:
           'passed (confirmed user preference, explicit show, private prompt metadata, Plan denial, delete and reload)',
+        commands:
+          'passed (builtin help without key, command listing, Chinese Markdown template expansion)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),
