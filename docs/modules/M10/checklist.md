@@ -15,7 +15,7 @@
 - [x] 无 key 的真实 provider 配置执行本地命令成功，无模型连接。
 - [x] `npm run check`：33测试文件，302通过、1平台跳过，共303；依赖边界80模块/325依赖通过，构建成功。
 - [x] `npm run test:package`：Unicode/空格路径、仅生产依赖的独立安装通过；新增 commands、无key本地帮助、中文模板展开验收。帮助入口不加载SDK/UI依赖。最终本地产物压缩包237,742bytes，编译JS共291,014bytes；帮助7次采样中位数39.13ms。
-- [ ] 推送后的 Windows/Linux CI，待实际运行后记录链接和结果。
+- [x] 推送后的[Windows/Linux CI](https://github.com/hqyx2025/MewcodeAgent/actions/runs/37430347612)通过；验证代码提交 `e98de207967cccdc1fe71173a6ea2342efd8d71f`。两平台Node v24.21.0；Windows为33文件、302通过/1跳过，Ubuntu为33文件、301通过/2跳过，共303。两平台 `npm run check` 和 `npm run test:package` 均成功。后续验收文档提交不改变已验证代码。
 
 `npm run bench:commands` 固定100个59,286bytes模板，7次采样；解析每次采样10,000次中文/引号输入。最终有界展开实现的本地索引重建中位数28.1858ms，单次正文读取/展开1.0169ms，解析单次中位数0.0004ms。模板总量5,928,600bytes，索引前缀共409,600bytes，调用只读取选中1份正文。允许 OS 文件缓存，不含网络、模型或人工等待；不代表冷启动/远端模型性能。展开时逐段检查输出预算，避免先拼接超大重复参数再拒绝。
 
