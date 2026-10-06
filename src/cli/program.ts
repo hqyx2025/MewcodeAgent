@@ -119,6 +119,19 @@ export function createProgram(): Command {
 
   program.action(() => program.outputHelp());
   program
+    .command('run')
+    .description('执行有界 Agent 任务；逐次审批文件修改与命令，Plan只读')
+    .argument('<task>', '编程任务')
+    .option('--json', '输出JSONL事件（审批提示仍在stderr）')
+    .option('--max-turns <count>', '模型轮数上限（1–1000）')
+    .option('--max-total-tokens <count>', '累计输入+输出token上限（无usage时估算）')
+    .option('--timeout-ms <milliseconds>', '整个任务时限（1–3600000）')
+    .action(async (task: string, _options: unknown, command: Command) => {
+      const loaded = await loadOptions(command.optsWithGlobals<CLIOptions>());
+      const { runAgent } = await import('./run.js');
+      await runAgent(loaded, task, command.opts());
+    });
+  program
     .command('tools')
     .description('列出六个内置工具与JSON Schema，不访问模型')
     .action(async () => {

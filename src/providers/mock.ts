@@ -10,7 +10,7 @@ export interface MockOptions {
 
 export class MockProvider implements LLMProvider {
   readonly id = 'mock';
-  readonly capabilities = { streaming: true, toolCalling: false };
+  readonly capabilities = { streaming: true, toolCalling: true };
   private readonly delayMs: number;
   private readonly chunkSize: number;
   private readonly response: string | undefined;
@@ -28,6 +28,27 @@ export class MockProvider implements LLMProvider {
   }
 
   async *stream(request: LLMRequest, signal: AbortSignal): AsyncIterable<LLMEvent> {
+    if (request.tools?.length && this.response === undefined) {
+      this.checkCancelled(signal);
+      const result = request.messages.findLast((message) => message.role === 'tool');
+      if (!result) {
+        yield {
+          type: 'tool_call_delta',
+          index: 0,
+          callId: 'mock-glob-1',
+          name: 'Glob',
+          arguments: '{"pattern":"*","maxResults":20}',
+        };
+        yield { type: 'finish', reason: 'tool_calls' };
+      } else {
+        yield {
+          type: 'text_delta',
+          text: `离线 Agent 已通过 Glob 查看项目目录，结果：${result.content}\n此模拟仅演示工具闭环，不解释或修改任意任务。`,
+        };
+        yield { type: 'finish', reason: 'stop' };
+      }
+      return;
+    }
     const prompt = request.messages.findLast((message) => message.role === 'user')?.content ?? '';
     const response =
       this.response ??

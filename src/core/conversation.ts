@@ -71,6 +71,11 @@ export class Conversation {
         if (combined.aborted) throw new AppError('CANCELLED', '请求已取消。');
         if (finish !== undefined)
           throw new AppError('MODEL_PROTOCOL', '模型在结束后继续返回事件。');
+        if (
+          event.type === 'tool_call_delta' ||
+          (event.type === 'finish' && event.reason === 'tool_calls')
+        )
+          throw new AppError('MODEL_UNSUPPORTED', 'chat 不执行工具，请使用 run 命令。');
         if (event.type === 'text_delta') {
           response += event.text;
           if (response.length > (this.options.maxResponseCharacters ?? 200_000)) {
@@ -78,8 +83,11 @@ export class Conversation {
             throw new AppError('CONTEXT_LIMIT', '回答超过当前输出上限，本轮残缺内容未加入会话。');
           }
         }
-        if (event.type === 'finish') finish = event.reason;
-        else yield event;
+        if (event.type === 'finish') {
+          if (event.reason === 'tool_calls')
+            throw new AppError('MODEL_UNSUPPORTED', 'chat 不执行工具，请使用 run 命令。');
+          finish = event.reason;
+        } else yield event;
       }
       if (combined.aborted) throw new AppError('CANCELLED', '请求已取消。');
       if (finish === undefined)

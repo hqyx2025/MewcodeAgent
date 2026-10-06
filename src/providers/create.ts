@@ -10,19 +10,23 @@ export async function createProvider(
     const { MockProvider } = await import('./mock.js');
     return new MockProvider();
   }
-  if (settings.provider.kind === 'anthropic') {
-    throw new AppError(
-      'MODEL_UNSUPPORTED',
-      'Anthropic 适配器计划在后续模块接入；当前请选择 mock 或 openai-compatible。',
-    );
-  }
-  const keyName = settings.provider.apiKeyEnv ?? 'OPENAI_API_KEY';
+  const keyName =
+    settings.provider.apiKeyEnv ??
+    (settings.provider.kind === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   const apiKey = env[keyName]?.trim();
   if (!apiKey)
     throw new AppError(
       'MODEL_MISSING_KEY',
       `请在本地终端设置环境变量 ${keyName}；不要将密钥写入配置文件。`,
     );
+  if (settings.provider.kind === 'anthropic') {
+    const { AnthropicProvider } = await import('./anthropic.js');
+    return new AnthropicProvider({
+      apiKey,
+      timeoutMs: settings.limits.timeoutMs,
+      ...(settings.provider.baseUrl ? { baseUrl: settings.provider.baseUrl } : {}),
+    });
+  }
   const { OpenAICompatibleProvider } = await import('./openai-compatible.js');
   return new OpenAICompatibleProvider({
     apiKey,

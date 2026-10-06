@@ -15,6 +15,8 @@ export interface CapturedRequest {
     stream_options?: { include_usage: boolean };
     max_tokens?: number;
     max_completion_tokens?: number;
+    tools?: Record<string, unknown>[];
+    include?: string[];
   };
   closed: boolean;
 }

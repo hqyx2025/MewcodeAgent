@@ -4,7 +4,7 @@
 
 根据[小林 coding 的 MewCode Agent 公开介绍](https://xiaolincoding.com/project/mewcode.html)规划实现，主技术栈为 **TypeScript + Node.js**。
 
-当前阶段：**M01–M03 已完成**，支持流式对话、六个编程工具与基础权限入口。下一模块 M04 将模型工具调用接入 Agent Loop，实现自动执行任务。
+当前阶段：**M01–M04 已完成**，支持流式对话、六个编程工具、基础权限入口与有界 Agent Loop。下一模块 M05 将完善系统提示与项目指令。
 
 ## 先阅读这些文档
 
@@ -12,7 +12,7 @@
 2. [技术栈与总体设计](docs/01-技术栈与总体设计.md)：技术选择、五层架构、目录结构、核心协议及关键设计。
 3. [模块实施与验收计划](docs/02-模块实施与验收.md)：按章节逐个实现的步骤、交付物、验收场景与调优指标。
 
-按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M03/spec.md)、[任务](docs/modules/M03/tasks.md)与[验收记录](docs/modules/M03/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
+按“规格 → 实现 → 验收 → 调优 → 文档”推进。当前模块的[规格](docs/modules/M04/spec.md)、[任务](docs/modules/M04/tasks.md)与[验收记录](docs/modules/M04/checklist.md)可直接查看；[M01](docs/modules/M01/checklist.md)和[M02](docs/modules/M02/checklist.md)保留前期验收与性能基线。
 
 ## 本地运行
 
@@ -34,7 +34,7 @@ npm run chat -- --provider mock --model mock-v1 "你好 MewCode"
 "解释流式响应" | npm run dev -- --provider mock --model mock-v1 chat
 ```
 
-终端中无提示词参数时启动交互界面，Enter 发送、Backspace 删除、Esc 取消回答、Ctrl+C 退出。有提示词参数或管道输入时使用纯文本输出。`chat` 当前只支持对话，工具可通过下面的明确调用命令执行，模型自动调用在 M04 接入。
+终端中无提示词参数时启动交互界面，Enter 发送、Backspace 删除、Esc 取消回答、Ctrl+C 退出。有提示词参数或管道输入时使用纯文本输出。`chat` 用于纯对话，`run` 启动 Agent 工具任务，`tool` 明确调用一个工具。
 
 构建后运行编译产物：
 
@@ -43,6 +43,22 @@ npm run build
 node dist/index.js --help
 node dist/index.js demo "你好 MewCode"
 ```
+
+## 模型执行任务
+
+```powershell
+npm run dev -- --provider mock --model mock-v1 --mode plan run "查看目录" --json
+npm run agent -- "分析项目入口" --mode plan
+npm run agent -- "修复一个小 bug 并运行测试"
+```
+
+`npm run agent` 自动读取存在的 `.env.local`，沿用已有模型配置。离线 Mock 仅调用 Glob 并汇报结果，不解释或修改任意任务。
+
+默认修改与 shell 逐次展示路径、预览和完整参数，TTY 输入 y 批准本次操作；非 TTY 拒绝需要审批的动作。`--mode accept-edits` 允许文件修改，shell 仍需确认；Plan 只暴露读取工具并由执行器再次拦截写入。
+
+`run` 支持 `--max-turns`（默认配置 20）、`--max-total-tokens`（默认 200000）、`--timeout-ms`（默认配置 120000）。连续三次工具失败停止；损坏/截断分片不执行工具；取消保留已完成的修改。token 使用服务报告或明确标记的估算，不能视为精确费用上限。
+
+`--json` 输出 JSONL 事件，普通模式文本在 stdout、工具及审批状态在 stderr。当前工具串行执行、上下文有界，不持久化或自动恢复任务。
 
 ## 明确调用编程工具
 
@@ -97,7 +113,7 @@ provider:
 
 在本地 `.env.local` 中设置 `OPENAI_API_KEY=你的密钥`，然后运行 `npm run chat`。密钥文件已被 Git 忽略，不要写入 YAML 或提交。该供应商、模型和 Responses 协议已完成一次真实冒烟调用；供应商权限与费用由自己的账户决定。Responses 请求固定发送 `store: false`，上下文由客户端逐轮传递。
 
-兼容 Chat Completions 的服务可改用 `wireApi: chat-completions`，并设置自己的模型与端点；按供应商要求选择 `maxTokensParameter: max_tokens` 或 `max_completion_tokens`，不支持 usage 流事件时设置 `includeUsage: false`。Anthropic 适配尚未实现。
+兼容 Chat Completions 的服务可改用 `wireApi: chat-completions`，并设置自己的模型与端点；按供应商要求选择 `maxTokensParameter: max_tokens` 或 `max_completion_tokens`，不支持 usage 流事件时设置 `includeUsage: false`。Anthropic 适配器现支持流式对话与工具调用；配置 `kind: anthropic`、实际模型名和 `ANTHROPIC_API_KEY`（自定义端点为服务根 URL，例如 `https://api.anthropic.com`）。本模块 Anthropic 只运行模拟协议测试。
 
 需要本地代理时，可在本机 `.env.local` 添加 `NODE_USE_ENV_PROXY=1` 和对应的 `HTTPS_PROXY` 地址。对话支持总请求超时及取消，网络/429/5xx 只在首个流事件前最多重试一次。失败或取消的残缺轮次不会进入下一次模型上下文；达到上下文上限时需开始新会话。
 
@@ -107,6 +123,7 @@ provider:
 npm run check
 npm run test:package
 npm run bench:tools
+npm run bench:agent
 ```
 
 `check` 包括类型、lint、格式、模块边界、测试和构建。`test:package` 需要先构建，随后打包到临时目录，仅安装生产依赖，检查独立 CLI 与 `mewcode` bin，再清理临时目录；依赖未缓存时需要访问 npm registry，不会发布到 npm。

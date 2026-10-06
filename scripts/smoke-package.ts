@@ -61,7 +61,7 @@ try {
     `import { registerHooks } from 'node:module';
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (['js-yaml', 'zod', 'ink', 'react', 'openai', 'picomatch'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
+    if (['js-yaml', 'zod', 'ink', 'react', 'openai', '@anthropic-ai/sdk', 'picomatch'].some((name) => specifier === name || specifier.startsWith(name + '/'))) {
       throw new Error('Heavy dependency loaded on help/version path');
     }
     return nextResolve(specifier, context);
@@ -89,6 +89,12 @@ registerHooks({
   const demoTotalMs = performance.now() - demoStarted;
   assert(demo.stdout.includes('独立安装验证 🐈'));
   assert((await run(['chat', '安装后的对话 🐈'])).stdout.includes('安装后的对话 🐈'));
+  const agentEvents = (await run(['--mode', 'plan', 'run', '查看目录', '--json'])).stdout
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { type: string; reason?: string });
+  assert(agentEvents.some((event) => event.type === 'tool_result'));
+  assert.equal(agentEvents.at(-1)?.reason, 'completed');
   assert.equal((JSON.parse((await run(['tools'])).stdout) as unknown[]).length, 6);
   await writeFile(join(installation, '工具文件.txt'), '安装后的工具 🐈');
   const readTool = JSON.parse(
@@ -140,6 +146,7 @@ registerHooks({
         configuration: 'passed',
         demo: 'passed',
         tools: 'passed (schemas, read, approved write)',
+        agent: 'passed (offline Plan tool loop, JSONL)',
         helpWithoutConfigDependencies: 'passed',
         helpMedianMs: Number(timings[3]?.toFixed(2)),
         helpMinMs: Number(timings[0]?.toFixed(2)),

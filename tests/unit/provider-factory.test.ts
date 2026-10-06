@@ -16,10 +16,18 @@ describe('provider selection and terminal text', () => {
     );
   });
 
-  it('does not pretend Anthropic is already implemented', async () => {
+  it('creates Anthropic lazily with its own key environment variable', async () => {
     await expect(
       createProvider({ ...defaultSettings, provider: { kind: 'anthropic', model: 'test' } }, {}),
-    ).rejects.toMatchObject({ code: 'MODEL_UNSUPPORTED' });
+    ).rejects.toMatchObject({ code: 'MODEL_MISSING_KEY' });
+    expect(
+      (
+        await createProvider(
+          { ...defaultSettings, provider: { kind: 'anthropic', model: 'test' } },
+          { ANTHROPIC_API_KEY: 'fake-key' },
+        )
+      ).id,
+    ).toBe('anthropic');
   });
 
   it('strips terminal controls without breaking Unicode or newlines', () => {

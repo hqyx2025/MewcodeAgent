@@ -20,6 +20,19 @@ export class ToolExecutor {
   private mutating = false;
   private active = 0;
 
+  get mode(): ToolMode {
+    return this.options.mode ?? 'default';
+  }
+
+  get shell(): ToolContext['shell'] {
+    return this.options.shell
+      ? { ...this.options.shell }
+      : {
+          kind: process.platform === 'win32' ? 'powershell' : 'bash',
+          executable: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash',
+        };
+  }
+
   private constructor(
     readonly registry: ToolRegistry,
     readonly paths: ProjectPaths,
@@ -72,10 +85,7 @@ export class ToolExecutor {
       const context: ToolContext = {
         paths: this.paths,
         signal: combined,
-        shell: this.options.shell ?? {
-          kind: process.platform === 'win32' ? 'powershell' : 'bash',
-          executable: process.platform === 'win32' ? 'powershell.exe' : '/bin/bash',
-        },
+        shell: this.shell,
         rgExecutable: this.options.rgExecutable ?? 'rg',
       };
       const prepared = await tool.prepare(input, context);
